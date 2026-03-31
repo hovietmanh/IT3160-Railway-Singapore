@@ -44,9 +44,7 @@ def project_along_way(sx, sy, geometry_xy):
     return best_proj, best_dist
 
 def main():
-    # =============================================
-    # BƯỚC 1: Trích xuất node và way từ file JSON
-    # =============================================
+    # BƯỚC 1
     with open(SCRIPTS / "stations.json", encoding="utf-8") as f:
         s_data = json.load(f)
     with open(SCRIPTS / "railways.json", encoding="utf-8") as f:
@@ -60,16 +58,12 @@ def main():
         if not name:
             continue
         raw_stations[el["id"]] = {
-            "id":   el["id"],
-            "name": name,
-            "lat":  el["lat"],
-            "lon":  el["lon"],
+            "id": el["id"], "name": name,
+            "lat": el["lat"], "lon": el["lon"]
         }
 
-    # Gộp ga trùng tên → giữ 1 node đại diện
     name_to_station = {}
     id_remap = {}
-
     for nid, s in raw_stations.items():
         name = s["name"]
         if name not in name_to_station:
@@ -80,26 +74,22 @@ def main():
 
     stations = {s["id"]: s for s in name_to_station.values()}
     ways = [el for el in r_data["elements"] if el["type"] == "way"]
-    print(f"Bước 1: {len(raw_stations)} ga thô → {len(stations)} ga sau khi gộp, {len(ways)} ways")
+    print(f"Bước 1: {len(raw_stations)} ga thô → {len(stations)} ga, {len(ways)} ways")
 
-    # =============================================
-    # BƯỚC 2: Chuyển lon/lat → x/y
-    # =============================================
+    # BƯỚC 2
     for s in stations.values():
         s["x"] = lon_to_x(s["lon"])
         s["y"] = lat_to_y(s["lat"])
+    print(f"Bước 2: Đã chuyển tọa độ")
 
-    print(f"Bước 2: Đã chuyển tọa độ {len(stations)} ga")
-
-    # =============================================
-    # BƯỚC 3: Chiếu ga lên ray, tính khoảng cách
-    # =============================================
+    # BƯỚC 3
     SNAP_THRESHOLD = 200
-    connections = {}
+    connections_list = []  # (from_id, to_id, weight, way_id)
     station_list = list(stations.values())
 
     for way in ways:
-        geom = way.get("geometry", [])
+        way_id = way.get("id", 0)
+        geom   = way.get("geometry", [])
         if len(geom) < 2:
             continue
 
@@ -114,41 +104,29 @@ def main():
         snapped.sort(key=lambda x: x[0])
 
         for i in range(len(snapped) - 1):
-            s1 = snapped[i][1]
-            s2 = snapped[i+1][1]
-
+            s1    = snapped[i][1]
+            s2    = snapped[i+1][1]
             s1_id = id_remap.get(s1["id"], s1["id"])
             s2_id = id_remap.get(s2["id"], s2["id"])
-
             if s1_id == s2_id:
                 continue
+            dist = abs(snapped[i+1][0] - snapped[i][0])
+            connections_list.append((s1_id, s2_id, round(dist, 2), way_id))
 
-            proj1 = snapped[i][0]
-            proj2 = snapped[i+1][0]
-            dist  = abs(proj2 - proj1)
+    print(f"Bước 3: {len(connections_list)} cạnh tìm thấy")
 
-            key = (min(s1_id, s2_id), max(s1_id, s2_id))
-            if key not in connections or dist < connections[key]:
-                connections[key] = round(dist, 2)
+    # BƯỚC 4
+    valid = list(set(
+        (u, v, w, wid) for (u, v, w, wid) in connections_list
+        if u in stations and v in stations and u != v
+    ))
+    print(f"Bước 4: {len(valid)} cạnh hợp lệ")
 
-    print(f"Bước 3: Tìm thấy {len(connections)} kết nối giữa các ga")
-
-    # =============================================
-    # BƯỚC 4: Loại bỏ kết nối không hợp lệ
-    # =============================================
-    valid = {
-        (u, v): w for (u, v), w in connections.items()
-        if u in stations and v in stations
-    }
-    print(f"Bước 4: {len(valid)} kết nối hợp lệ sau khi lọc")
-
-    if len(valid) == 0:
-        print("CẢNH BÁO: Không có kết nối nào!")
+    if not valid:
+        print("CẢNH BÁO: Không có cạnh nào!")
         return
 
-    # =============================================
-    # BƯỚC 5: Lưu vào database
-    # =============================================
+    # BƯỚC 5
     conn   = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM stations")
@@ -160,14 +138,14 @@ def main():
             (s["id"], s["name"], s["lat"], s["lon"])
         )
 
-    for (u, v), w in valid.items():
+    for (u, v, w, wid) in valid:
         cursor.execute(
-            "INSERT INTO connections (from_id, to_id, weight) VALUES (?, ?, ?)",
-            (u, v, w)
+            "INSERT INTO connections (from_id, to_id, weight, way_id) VALUES (?, ?, ?, ?)",
+            (u, v, w, wid)
         )
         cursor.execute(
-            "INSERT INTO connections (from_id, to_id, weight) VALUES (?, ?, ?)",
-            (v, u, w)
+            "INSERT INTO connections (from_id, to_id, weight, way_id) VALUES (?, ?, ?, ?)",
+            (v, u, w, wid)
         )
 
     conn.commit()

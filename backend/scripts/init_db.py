@@ -23,6 +23,7 @@ def init_db():
             from_id     INTEGER NOT NULL,
             to_id       INTEGER NOT NULL,
             weight      REAL NOT NULL,
+            way_id      INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (from_id) REFERENCES stations(id),
             FOREIGN KEY (to_id)   REFERENCES stations(id)
         );

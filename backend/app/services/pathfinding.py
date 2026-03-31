@@ -9,6 +9,7 @@ class PathfindingService:
         self.graph = {
             "nodes":            {},
             "adj_list":         {},
+            "edges":            {},
             "original_weights": {},
             "current_weights":  {}
         }
@@ -24,17 +25,23 @@ class PathfindingService:
                 self.graph["nodes"][nid]    = (row["lat"], row["lon"])
                 self.graph["adj_list"][nid] = []
 
-            cursor.execute("SELECT from_id, to_id, weight FROM connections")
+            cursor.execute("SELECT id, from_id, to_id, weight, way_id FROM connections")
             for row in cursor.fetchall():
+                cid = row["id"]
                 u, v, w = row["from_id"], row["to_id"], row["weight"]
-                if u in self.graph["nodes"] and v in self.graph["nodes"]:
-                    self.graph["adj_list"][u].append(v)
-                    self.graph["original_weights"][(u, v)] = w
+                if u not in self.graph["nodes"] or v not in self.graph["nodes"]:
+                    continue
+                self.graph["edges"][cid] = {
+                    "from": u, "to": v,
+                    "weight": w, "way_id": row["way_id"]
+                }
+                self.graph["adj_list"][u].append((v, cid))
+                self.graph["original_weights"][cid] = w
 
             self.graph["current_weights"] = self.graph["original_weights"].copy()
 
         n = len(self.graph["nodes"])
-        e = len(self.graph["original_weights"])
+        e = len(self.graph["edges"])
         print(f"[PathfindingService] Loaded {n} stations, {e} connections")
 
     def haversine(self, lat1, lon1, lat2, lon2) -> float:
@@ -81,8 +88,8 @@ class PathfindingService:
                 path.append(start_id)
                 return list(reversed(path))
 
-            for neighbor in adj.get(current, []):
-                w = weights.get((current, neighbor), float("inf"))
+            for (neighbor, cid) in adj.get(current, []):
+                w = weights.get(cid, float("inf"))
                 if w == float("inf"):
                     continue
                 tentative_g = g_score.get(current, float("inf")) + w
@@ -103,11 +110,7 @@ class PathfindingService:
             return None
         if start_id == goal_id:
             lat, lon = self.graph["nodes"][start_id]
-            return {
-                "path":     [{"id": start_id, "lat": lat, "lon": lon}],
-                "distance": 0,
-                "nodes":    1
-            }
+            return {"path": [{"id": start_id, "lat": lat, "lon": lon}], "distance": 0, "nodes": 1}
 
         path_ids = self.a_star(start_id, goal_id)
         if path_ids is None:
@@ -119,39 +122,45 @@ class PathfindingService:
             coords.append({"id": nid, "lat": lat, "lon": lon})
 
         total_dist = sum(
-            self.haversine(
-                coords[i]["lat"], coords[i]["lon"],
-                coords[i+1]["lat"], coords[i+1]["lon"]
-            )
+            self.haversine(coords[i]["lat"], coords[i]["lon"],
+                           coords[i+1]["lat"], coords[i+1]["lon"])
             for i in range(len(coords) - 1)
         )
 
-        return {
-            "path":     coords,
-            "distance": round(total_dist),
-            "nodes":    len(coords)
-        }
+        return {"path": coords, "distance": round(total_dist), "nodes": len(coords)}
 
-    def update_weight_in_ram(self, u: int, v: int, penalty: float):
+    def block_station(self, station_id: int):
+        curr  = self.graph["current_weights"]
+        edges = self.graph["edges"]
+        for cid, e in edges.items():
+            if e["from"] == station_id or e["to"] == station_id:
+                curr[cid] = float("inf")
+
+    def unblock_station(self, station_id: int):
+        orig  = self.graph["original_weights"]
+        curr  = self.graph["current_weights"]
+        edges = self.graph["edges"]
+        for cid, e in edges.items():
+            if e["from"] == station_id or e["to"] == station_id:
+                curr[cid] = orig[cid]
+
+    def block_connection(self, conn_id: int):
+        if conn_id in self.graph["current_weights"]:
+            self.graph["current_weights"][conn_id] = float("inf")
+
+    def unblock_connection(self, conn_id: int):
+        orig = self.graph["original_weights"]
         curr = self.graph["current_weights"]
-        if (u, v) in curr:
-            curr[(u, v)] *= penalty
+        if conn_id in orig:
+            curr[conn_id] = orig[conn_id]
+
+    def update_weight_in_ram(self, conn_id: int, penalty: float):
+        curr = self.graph["current_weights"]
+        if conn_id in curr:
+            curr[conn_id] *= penalty
 
     def reset_weights_in_ram(self):
         self.graph["current_weights"] = self.graph["original_weights"].copy()
-
-    def block_station(self, station_id: int):
-        curr = self.graph["current_weights"]
-        for (u, v) in list(curr.keys()):
-            if u == station_id or v == station_id:
-                curr[(u, v)] = float("inf")
-
-    def unblock_station(self, station_id: int):
-        orig = self.graph["original_weights"]
-        curr = self.graph["current_weights"]
-        for (u, v), w in orig.items():
-            if u == station_id or v == station_id:
-                curr[(u, v)] = w
 
 
 _service: Optional[PathfindingService] = None
