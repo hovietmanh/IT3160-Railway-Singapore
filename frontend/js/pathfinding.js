@@ -1,86 +1,89 @@
-let selectingStart = false, selectingEnd = false;
-let startCoord = null, endCoord = null;
+let allStations = [];
+let startStation = null, endStation = null;
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initMap();
-
-    map.on('click', (e) => {
-    const coord = latLngToPx(e.latlng);
-    if (selectingStart) {
-        startCoord = coord;
-        setStartMarker(e.latlng);
-        document.getElementById('start-display').textContent =
-            `(${coord.x}, ${coord.y})`;
-        selectingStart = false;
-        document.getElementById('btn-select-start').classList.remove('active');
-    } else if (selectingEnd) {
-        endCoord = coord;
-        setEndMarker(e.latlng);
-        document.getElementById('end-display').textContent =
-            `(${coord.x}, ${coord.y})`;
-        selectingEnd = false;
-        document.getElementById('btn-select-end').classList.remove('active');
-    }
-    });
-
-    document.getElementById('btn-select-start').onclick = () => {
-        selectingStart = true; selectingEnd = false;
-        document.getElementById('btn-select-start').classList.add('active');
-        document.getElementById('btn-select-end').classList.remove('active');
-    };
-
-    document.getElementById('btn-select-end').onclick = () => {
-        selectingEnd = true; selectingStart = false;
-        document.getElementById('btn-select-end').classList.add('active');
-        document.getElementById('btn-select-start').classList.remove('active');
-    };
-
-    document.getElementById('btn-car').onclick = () => {
-        document.getElementById('btn-car').classList.add('active');
-        document.getElementById('btn-foot').classList.remove('active');
-        document.getElementById('speed').value = 40;
-    };
-
-    document.getElementById('btn-foot').onclick = () => {
-        document.getElementById('btn-foot').classList.add('active');
-        document.getElementById('btn-car').classList.remove('active');
-        document.getElementById('speed').value = 5;
-    };
-
-    document.getElementById('btn-find').onclick = findPath;
-    document.getElementById('btn-clear').onclick = () => {
-        clearMap();
-        startCoord = endCoord = null;
-        document.getElementById('start-display').textContent = 'Chưa chọn';
-        document.getElementById('end-display').textContent = 'Chưa chọn';
-        document.getElementById('result-distance').textContent = '-';
-        document.getElementById('result-nodes').textContent = '-';
-        document.getElementById('result-time').textContent = '-';
-    };
-
-    window.addEventListener('storage', () => {
-        if (startCoord && endCoord) findPath();
-    });
+    await loadStations();
+    setupSearch();
+    setupButtons();
 });
 
-function getVehicle() {
-    return document.getElementById('btn-car').classList.contains('active') ? 'car' : 'foot';
+async function loadStations() {
+    const res = await fetch(`${CONFIG.API_BASE}/api/stations`);
+    allStations = await res.json();
+    drawStations(allStations);
 }
 
-async function findPath() {
-    if (!startCoord || !endCoord) {
-        alert('Vui lòng chọn điểm bắt đầu và kết thúc!');
+function setupSearch() {
+    const startInput = document.getElementById('start-input');
+    const endInput   = document.getElementById('end-input');
+    const startList  = document.getElementById('start-list');
+    const endList    = document.getElementById('end-list');
+
+    startInput.addEventListener('input', () => {
+        showSuggestions(startInput.value, startList, (s) => {
+            startStation = s;
+            startInput.value = s.name;
+            startList.innerHTML = '';
+            setStartMarker(s.lat, s.lon, s.name);
+            map.setView([s.lat, s.lon], 14);
+        });
+    });
+
+    endInput.addEventListener('input', () => {
+        showSuggestions(endInput.value, endList, (s) => {
+            endStation = s;
+            endInput.value = s.name;
+            endList.innerHTML = '';
+            setEndMarker(s.lat, s.lon, s.name);
+            map.setView([s.lat, s.lon], 14);
+        });
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#start-box')) startList.innerHTML = '';
+        if (!e.target.closest('#end-box'))   endList.innerHTML = '';
+    });
+}
+
+function showSuggestions(query, listEl, onSelect) {
+    listEl.innerHTML = '';
+    if (!query.trim()) return;
+    const matches = allStations.filter(s =>
+        s.name.toLowerCase().includes(query.toLowerCase())
+    ).slice(0, 8);
+    matches.forEach(s => {
+        const li = document.createElement('li');
+        li.textContent = s.name;
+        li.onclick = () => onSelect(s);
+        listEl.appendChild(li);
+    });
+}
+
+function setupButtons() {
+    document.getElementById('btn-find').onclick = findRoute;
+    document.getElementById('btn-clear').onclick = () => {
+        clearMap();
+        startStation = endStation = null;
+        document.getElementById('start-input').value = '';
+        document.getElementById('end-input').value   = '';
+        document.getElementById('result-box').style.display = 'none';
+    };
+}
+
+async function findRoute() {
+    if (!startStation || !endStation) {
+        alert('Vui lòng chọn điểm đi và điểm đến!');
+        return;
+    }
+    if (startStation.id === endStation.id) {
+        alert('Điểm đi và điểm đến phải khác nhau!');
         return;
     }
 
-    const vehicle = getVehicle();
-    const speed   = parseFloat(document.getElementById('speed').value) || 5;
-    console.log('startCoord:', startCoord);
-    console.log('endCoord:', endCoord);
-    const url = `${CONFIG.API_BASE}/api/path?sx=${startCoord.x}&sy=${startCoord.y}&gx=${endCoord.x}&gy=${endCoord.y}&vehicle=${vehicle}&speed=${speed}`;
-
     document.getElementById('btn-find').textContent = 'Đang tìm...';
     try {
+        const url = `${CONFIG.API_BASE}/api/route?start_lat=${startStation.lat}&start_lon=${startStation.lon}&goal_lat=${endStation.lat}&goal_lon=${endStation.lon}`;
         const res  = await fetch(url);
         if (!res.ok) {
             const err = await res.json();
@@ -88,21 +91,16 @@ async function findPath() {
             return;
         }
         const data = await res.json();
-        console.log('Full response:', JSON.stringify(data));
-        if (data.path && data.path.length > 0) {
-            drawPath(data.path);
-        } else {
-            console.log('No path in response!');
-        }
+        drawPath(data.path);
 
-        document.getElementById('result-distance').textContent = data.distance + ' m';
-        document.getElementById('result-nodes').textContent    = data.nodes;
-        const mins = Math.floor(data.time_seconds / 60);
-        const secs = data.time_seconds % 60;
-        document.getElementById('result-time').textContent = `${mins}m ${secs}s`;
+        const names = data.path.map(p => p.name);
+        document.getElementById('result-stops').textContent  = data.nodes + ' ga';
+        document.getElementById('result-dist').textContent   = (data.distance / 1000).toFixed(1) + ' km';
+        document.getElementById('result-path').textContent   = names.join(' → ');
+        document.getElementById('result-box').style.display  = 'block';
     } catch (e) {
         alert('Không thể kết nối server!');
     } finally {
-        document.getElementById('btn-find').textContent = 'Tìm đường tối ưu';
+        document.getElementById('btn-find').textContent = 'Tìm đường';
     }
 }

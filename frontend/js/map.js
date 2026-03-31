@@ -1,49 +1,59 @@
-let map, startMarker, endMarker, pathLayer;
-
-const LON_MIN = 103.8400, LON_MAX = 103.8650;
-const LAT_MIN = 1.2700,   LAT_MAX = 1.3050;
-const PX_W = 8500, PX_H = 7800;
+let map, startMarker, endMarker, pathLayer, stationLayers = [];
 
 function initMap() {
-    console.log('initMap called!');
-    map = L.map('map').setView([1.2875, 103.8525], 15);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '© OpenStreetMap © CARTO'
+    map = L.map('map').setView([1.3521, 103.8198], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
     }).addTo(map);
 }
 
-function pxToLatLng(x, y) {
-    const lon = LON_MIN + (x / PX_W) * (LON_MAX - LON_MIN);
-    const lat = LAT_MIN + ((PX_H - y) / PX_H) * (LAT_MAX - LAT_MIN);
-    return [lat, lon];
+function drawStations(stations) {
+    stationLayers.forEach(l => map.removeLayer(l));
+    stationLayers = [];
+    stations.forEach(s => {
+        const m = L.circleMarker([s.lat, s.lon], {
+            radius: 5,
+            fillColor: '#d42e12',
+            color: '#fff',
+            weight: 1.5,
+            fillOpacity: 1
+        }).addTo(map).bindPopup(`<b>${s.name}</b>`);
+        stationLayers.push(m);
+    });
 }
 
-function latLngToPx(latlng) {
-    const x = (latlng.lng - LON_MIN) / (LON_MAX - LON_MIN) * PX_W;
-    const y = PX_H - (latlng.lat - LAT_MIN) / (LAT_MAX - LAT_MIN) * PX_H;
-    return { x: Math.round(x), y: Math.round(y) };
+function setStartMarker(lat, lon, name) {
+    if (startMarker) map.removeLayer(startMarker);
+    startMarker = L.marker([lat, lon], {
+        icon: L.divIcon({
+            className: '',
+            html: '<div style="background:#16a34a;color:#fff;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap">▶ ' + name + '</div>',
+            iconAnchor: [0, 0]
+        })
+    }).addTo(map);
+}
+
+function setEndMarker(lat, lon, name) {
+    if (endMarker) map.removeLayer(endMarker);
+    endMarker = L.marker([lat, lon], {
+        icon: L.divIcon({
+            className: '',
+            html: '<div style="background:#dc2626;color:#fff;padding:4px 8px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap">■ ' + name + '</div>',
+            iconAnchor: [0, 0]
+        })
+    }).addTo(map);
 }
 
 function drawPath(pathCoords) {
     if (pathLayer) map.removeLayer(pathLayer);
-    const latlngs = pathCoords.map(p => pxToLatLng(p.x, p.y));
-    pathLayer = L.polyline(latlngs, { color: '#2563eb', weight: 5, opacity: 0.9 }).addTo(map);
+    const latlngs = pathCoords.map(p => [p.lat, p.lon]);
+    pathLayer = L.polyline(latlngs, {
+        color: '#2563eb',
+        weight: 5,
+        opacity: 0.85
+    }).addTo(map);
     map.fitBounds(pathLayer.getBounds(), { padding: [40, 40] });
-}
-
-function setStartMarker(latlng) {
-    if (startMarker) map.removeLayer(startMarker);
-    startMarker = L.circleMarker(latlng, {
-        radius: 10, color: '#16a34a', fillColor: '#16a34a', fillOpacity: 1
-    }).addTo(map).bindPopup('Start').openPopup();
-}
-
-function setEndMarker(latlng) {
-    if (endMarker) map.removeLayer(endMarker);
-    endMarker = L.circleMarker(latlng, {
-        radius: 10, color: '#dc2626', fillColor: '#dc2626', fillOpacity: 1
-    }).addTo(map).bindPopup('End').openPopup();
 }
 
 function clearMap() {

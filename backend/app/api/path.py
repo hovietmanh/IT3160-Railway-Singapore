@@ -1,38 +1,54 @@
 from fastapi import APIRouter, HTTPException
 from backend.app.services.pathfinding import get_pathfinding_service
-from backend.app.config import settings
+from backend.app.database import get_db_connection
 
 router = APIRouter(prefix="/api", tags=["path"])
 
-@router.get("/path")
-def find_path(
-    sx: float, sy: float,
-    gx: float, gy: float,
-    vehicle: str = "foot",
-    speed: float = 5.0
+@router.get("/route")
+def find_route(
+    start_lat: float, start_lon: float,
+    goal_lat:  float, goal_lon:  float
 ):
-    if vehicle not in ["car", "foot"]:
-        raise HTTPException(status_code=400, detail="vehicle phải là 'car' hoặc 'foot'")
-
     service = get_pathfinding_service()
-    result = service.find_path(sx, sy, gx, gy, vehicle)
+    result  = service.find_path(start_lat, start_lon, goal_lat, goal_lon)
 
     if result is None:
         raise HTTPException(status_code=404, detail="Không tìm được đường đi")
 
-    pixel_per_meter = max(settings.MAP_WIDTH, settings.MAP_HEIGHT) / 2786
-    distance_meters = result["distance"] / pixel_per_meter
-    time_seconds = (distance_meters / 1000) / speed * 3600
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        path_with_names = []
+        for p in result["path"]:
+            cursor.execute("SELECT name FROM stations WHERE id=?", (p["id"],))
+            row = cursor.fetchone()
+            path_with_names.append({
+                "id":   p["id"],
+                "name": row["name"] if row else "",
+                "lat":  p["lat"],
+                "lon":  p["lon"]
+            })
 
     return {
-        "path": result["path"],
-        "distance": round(distance_meters, 1),
-        "nodes": result["nodes"],
-        "time_seconds": round(time_seconds)
+        "path":     path_with_names,
+        "distance": result["distance"],
+        "nodes":    result["nodes"]
     }
 
-@router.get("/nodes")
-def get_nodes(vehicle: str = "foot"):
-    service = get_pathfinding_service()
-    nodes = service.graphs[vehicle]["nodes"]
-    return [{"id": k, "x": v[0], "y": v[1]} for k, v in nodes.items()]
+@router.get("/stations")
+def get_all_stations():
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, lat, lon FROM stations ORDER BY name")
+        rows = cursor.fetchall()
+    return [{"id": r["id"], "name": r["name"], "lat": r["lat"], "lon": r["lon"]} for r in rows]
+
+@router.get("/stations/search")
+def search_stations(q: str = ""):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, lat, lon FROM stations WHERE name LIKE ? ORDER BY name LIMIT 10",
+            (f"%{q}%",)
+        )
+        rows = cursor.fetchall()
+    return [{"id": r["id"], "name": r["name"], "lat": r["lat"], "lon": r["lon"]} for r in rows]
