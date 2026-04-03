@@ -1,0 +1,103 @@
+{
+  "lines": [
+    {
+      "id": 1,
+      "name": "North-South Line",
+      "short_name": "NSL",
+      "color": "#D42E12",
+      "stations": [
+        "Jurong East", "Bukit Batok", "Bukit Gombak", "Choa Chu Kang", "Yew Tee",
+        "Kranji", "Marsiling", "Woodlands", "Admiralty", "Sembawang", "Canberra",
+        "Yishun", "Khatib", "Yio Chu Kang", "Ang Mo Kio", "Bishan", "Braddell",
+        "Toa Payoh", "Novena", "Newton", "Orchard", "Somerset", "Dhoby Ghaut",
+        "City Hall", "Raffles Place", "Marina Bay", "Marina South Pier"
+      ],
+      "branches": []
+    },
+    {
+      "id": 2,
+      "name": "East-West Line",
+      "short_name": "EWL",
+      "color": "#009645",
+      "stations": [
+        "Pasir Ris", "Tampines", "Simei", "Tanah Merah", "Bedok", "Kembangan",
+        "Eunos", "Paya Lebar", "Aljunied", "Kallang", "Lavender", "Bugis",
+        "City Hall", "Raffles Place", "Tanjong Pagar", "Outram Park", "Tiong Bahru",
+        "Redhill", "Queenstown", "Commonwealth", "Buona Vista", "Dover", "Clementi",
+        "Jurong East", "Chinese Garden", "Lakeside", "Boon Lay", "Pioneer", "Joo Koon",
+        "Gul Circle", "Tuas Crescent", "Tuas West Road", "Tuas Link"
+      ],
+      "branches": [
+        ["Tanah Merah", "Expo", "Changi Airport"]
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Circle Line",
+      "short_name": "CCL",
+      "color": "#FA9E0D",
+      "stations": [
+        "Dhoby Ghaut", "Bras Basah", "Esplanade", "Promenade", "Nicoll Highway",
+        "Stadium", "Mountbatten", "Dakota", "Paya Lebar", "MacPherson", "Tai Seng",
+        "Bartley", "Serangoon", "Lorong Chuan", "Bishan", "Marymount", "Caldecott",
+        "Botanic Gardens", "Farrer Road", "Holland Village", "Buona Vista",
+        "one-north", "Kent Ridge", "Haw Par Villa", "Pasir Panjang", "Labrador Park",
+        "Telok Blangah", "HarbourFront"
+      ],
+      "branches": [
+        ["Promenade", "Bayfront", "Marina Bay"]
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Downtown Line",
+      "short_name": "DTL",
+      "color": "#005EC4",
+      "stations": [
+        "Bukit Panjang", "Cashew", "Hillview", "Beauty World", "King Albert Park",
+        "Sixth Avenue", "Tan Kah Kee", "Botanic Gardens", "Stevens", "Newton",
+        "Little India", "Rochor", "Bugis", "Promenade", "Bayfront", "Downtown",
+        "Telok Ayer", "Chinatown", "Fort Canning", "Bencoolen", "Jalan Besar",
+        "Bendemeer", "Geylang Bahru", "Mattar", "MacPherson", "Ubi", "Kaki Bukit",
+        "Bedok North", "Bedok Reservoir", "Tampines West", "Tampines", "Tampines East",
+        "Upper Changi", "Expo"
+      ],
+      "branches": []
+    },
+    {
+      "id": 5,
+      "name": "North East Line",
+      "short_name": "NEL",
+      "color": "#9900AA",
+      "stations": [
+        "HarbourFront", "Outram Park", "Chinatown", "Clarke Quay", "Dhoby Ghaut",
+        "Little India", "Farrer Park", "Boon Keng", "Potong Pasir", "Woodleigh",
+        "Serangoon", "Kovan", "Hougang", "Buangkok", "Sengkang", "Punggol"
+      ],
+      "branches": []
+    },
+    {
+      "id": 6,
+      "name": "Thomson-East Coast Line",
+      "short_name": "TEL",
+      "color": "#9D5B25",
+      "stations": [
+        "Woodlands North", "Woodlands", "Woodlands South", "Springleaf", "Lentor",
+        "Mayflower", "Bright Hill", "Upper Thomson", "Caldecott", "Stevens",
+        "Napier", "Orchard Boulevard", "Orchard", "Great World", "Havelock",
+        "Outram Park", "Maxwell", "Shenton Way", "Marina Bay", "Gardens by the Bay",
+        "Tanjong Rhu", "Katong Park", "Tanjong Katong", "Marine Parade",
+        "Marine Terrace", "Siglap", "Bayshore"
+      ],
+      "branches": []
+    }
+  ],
+  "osm_name_patterns": {
+    "North-South Line": ["north south", "north-south", "nsl", "north south line"],
+    "East-West Line": ["east west", "east-west", "ewl", "east west line"],
+    "Circle Line": ["circle", "ccl", "circle line"],
+    "Downtown Line": ["downtown", "dtl", "downtown line"],
+    "North East Line": ["north east", "north-east", "nel", "north east line"],
+    "Thomson-East Coast Line": ["thomson", "tel", "east coast line", "thomson-east"]
+  }
+}

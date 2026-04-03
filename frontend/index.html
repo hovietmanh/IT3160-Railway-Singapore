@@ -10,23 +10,42 @@
     <div id="sidebar">
         <h1>Singapore MRT Navigator</h1>
 
-        <div class="search-box" id="start-box">
-            <label>Điểm xuất phát</label>
-            <input type="text" id="start-input" placeholder="Nhập tên ga..."/>
-            <ul class="suggest-list" id="start-list"></ul>
+        <!-- Hướng dẫn chọn điểm -->
+        <div id="instruction-box">
+            <div id="instruction-text" class="instruction active">
+                Click lên bản đồ để chọn <strong>điểm xuất phát</strong>
+            </div>
         </div>
 
-        <div class="search-box" id="end-box">
-            <label>Điểm đến</label>
-            <input type="text" id="end-input" placeholder="Nhập tên ga..."/>
-            <ul class="suggest-list" id="end-list"></ul>
+        <!-- Thông tin điểm đầu -->
+        <div class="point-card" id="start-card">
+            <div class="point-header">
+                <span class="point-dot start-dot"></span>
+                <span class="point-label">Điểm xuất phát</span>
+                <button class="btn-clear-point" id="btn-clear-start" title="Xóa">✕</button>
+            </div>
+            <div class="point-station" id="start-station-name">Chưa chọn</div>
+            <div class="point-lines" id="start-station-lines"></div>
         </div>
 
+        <!-- Thông tin điểm đến -->
+        <div class="point-card" id="end-card">
+            <div class="point-header">
+                <span class="point-dot end-dot"></span>
+                <span class="point-label">Điểm đến</span>
+                <button class="btn-clear-point" id="btn-clear-end" title="Xóa">✕</button>
+            </div>
+            <div class="point-station" id="end-station-name">Chưa chọn</div>
+            <div class="point-lines" id="end-station-lines"></div>
+        </div>
+
+        <!-- Nút tìm đường -->
         <div class="btn-row">
-            <button class="btn primary"   id="btn-find">Tìm đường</button>
-            <button class="btn secondary" id="btn-clear">Xóa</button>
+            <button class="btn primary" id="btn-find" disabled>Tìm đường</button>
+            <button class="btn secondary" id="btn-clear">Xóa tất cả</button>
         </div>
 
+        <!-- Kết quả -->
         <div id="result-box">
             <h3>Kết quả</h3>
             <div class="result-row">
@@ -37,7 +56,16 @@
                 <span>Khoảng cách</span>
                 <span id="result-dist">-</span>
             </div>
+            <!-- Danh sách tuyến sử dụng -->
+            <div id="result-lines"></div>
+            <!-- Chuỗi ga -->
             <div id="result-path"></div>
+        </div>
+
+        <!-- Chú thích tuyến -->
+        <div id="legend-box">
+            <div class="legend-title">Các tuyến MRT</div>
+            <div id="legend-list"></div>
         </div>
     </div>
 

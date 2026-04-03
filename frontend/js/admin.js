@@ -1,7 +1,12 @@
-let adminMap, allStations = [];
-let currentMode = 'block';
-let maintFrom = null, maintTo = null;
-let penaltyStation = null;
+/* ===== ADMIN MODULE =====
+ * Quản lý kịch bản Đóng tuyến.
+ * Mỗi tuyến hiển thị như một toggle button.
+ */
+
+let adminMap;
+let allLines       = [];
+let networkLayers  = {};  // line_id -> [polyline, ...]
+let closedLines    = new Set();  // line_id
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-login').onclick = handleLogin;
@@ -17,161 +22,135 @@ async function handleLogin() {
     if (ok) {
         document.getElementById('login-page').style.display = 'none';
         document.getElementById('dashboard').style.display  = 'flex';
-        initAdminMap();
+        await initAdminDashboard();
     } else {
         document.getElementById('login-error').textContent = 'Sai username hoặc password!';
     }
 }
 
-async function initAdminMap() {
+async function initAdminDashboard() {
+    // Khởi tạo map
     adminMap = L.map('admin-map').setView([1.3521, 103.8198], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '© OpenStreetMap'
     }).addTo(adminMap);
 
-    const res = await fetch(`${CONFIG.API_BASE}/api/stations`);
-    allStations = await res.json();
-    drawAdminStations();
-    loadScenarios();
-    setupModeButtons();
-    setupActions();
-}
+    // Nạp dữ liệu song song
+    const [linesRes, networkRes] = await Promise.all([
+        fetch(`${CONFIG.API_BASE}/api/lines`),
+        fetch(`${CONFIG.API_BASE}/api/network`)
+    ]);
+    allLines = await linesRes.json();
+    const networkData = await networkRes.json();
 
-function drawAdminStations() {
-    allStations.forEach(s => {
-        const m = L.circleMarker([s.lat, s.lon], {
-            radius: 7, fillColor: '#22c55e',
-            color: '#fff', weight: 1.5, fillOpacity: 1
-        }).addTo(adminMap).bindTooltip(s.name, { permanent: false });
-        m.on('click', () => handleStationClick(s, m));
-        s._marker = m;
-    });
-}
-
-function handleStationClick(s, marker) {
-    if (currentMode === 'block') {
-        blockStation(s, marker);
-    } else if (currentMode === 'maintenance') {
-        if (!maintFrom) {
-            maintFrom = s;
-            document.getElementById('maint-from').textContent = s.name;
-            marker.setStyle({ fillColor: '#f59e0b' });
-        } else if (!maintTo && s.id !== maintFrom.id) {
-            maintTo = s;
-            document.getElementById('maint-to').textContent = s.name;
-            marker.setStyle({ fillColor: '#f59e0b' });
-        }
-    } else if (currentMode === 'penalty') {
-        if (penaltyStation) {
-            const prev = allStations.find(st => st.id === penaltyStation.id);
-            if (prev && prev._marker) prev._marker.setStyle({ fillColor: '#22c55e' });
-        }
-        penaltyStation = s;
-        document.getElementById('penalty-station').textContent = s.name;
-        marker.setStyle({ fillColor: '#3b82f6' });
-    }
-}
-
-async function blockStation(s, marker) {
-    const res = await fetch(`${CONFIG.API_BASE}/api/scenarios/block`, {
-        method: 'POST',
-        headers: Auth.headers(),
-        body: JSON.stringify({ station_id: s.id, station_name: s.name })
-    });
-    if (res.ok) {
-        marker.setStyle({ fillColor: '#dc2626' });
-        loadScenarios();
-    } else {
-        alert('Lỗi khi đóng ga!');
-    }
-}
-
-function setupModeButtons() {
-    document.querySelectorAll('.mode-btn').forEach(btn => {
-        btn.onclick = () => {
-            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentMode = btn.dataset.mode;
-
-            document.getElementById('block-panel').style.display      = currentMode === 'block'       ? 'flex' : 'none';
-            document.getElementById('maintenance-panel').style.display = currentMode === 'maintenance' ? 'flex' : 'none';
-            document.getElementById('penalty-panel').style.display     = currentMode === 'penalty'     ? 'flex' : 'none';
-
-            maintFrom = maintTo = penaltyStation = null;
-            document.getElementById('maint-from').textContent     = 'Chưa chọn';
-            document.getElementById('maint-to').textContent       = 'Chưa chọn';
-            document.getElementById('penalty-station').textContent = 'Chưa chọn';
-            allStations.forEach(s => {
-                if (s._marker) s._marker.setStyle({ fillColor: '#22c55e' });
-            });
-        };
-    });
-}
-
-function setupActions() {
-    document.getElementById('btn-maint-apply').onclick = async () => {
-        if (!maintFrom || !maintTo) { alert('Vui lòng chọn 2 ga!'); return; }
-        const res = await fetch(`${CONFIG.API_BASE}/api/scenarios/maintenance`, {
-            method: 'POST',
-            headers: Auth.headers(),
-            body: JSON.stringify({
-                from_id: maintFrom.id, from_name: maintFrom.name,
-                to_id:   maintTo.id,   to_name:   maintTo.name
-            })
-        });
-        if (res.ok) {
-            maintFrom = maintTo = null;
-            document.getElementById('maint-from').textContent = 'Chưa chọn';
-            document.getElementById('maint-to').textContent   = 'Chưa chọn';
-            allStations.forEach(s => { if (s._marker) s._marker.setStyle({ fillColor: '#22c55e' }); });
-            loadScenarios();
-        } else {
-            const err = await res.json();
-            alert('Lỗi: ' + (err.detail || 'Không thể áp dụng bảo trì'));
-            maintFrom = maintTo = null;
-            document.getElementById('maint-from').textContent = 'Chưa chọn';
-            document.getElementById('maint-to').textContent   = 'Chưa chọn';
-            allStations.forEach(s => { if (s._marker) s._marker.setStyle({ fillColor: '#22c55e' }); });
-        }
-    };
-
-    document.getElementById('btn-penalty-apply').onclick = async () => {
-        if (!penaltyStation) { alert('Vui lòng chọn ga!'); return; }
-        const penalty = parseFloat(document.getElementById('penalty-value').value);
-        if (penalty < 1.1) { alert('Hệ số penalty phải >= 1.1!'); return; }
-        const res = await fetch(`${CONFIG.API_BASE}/api/scenarios/penalty`, {
-            method: 'POST',
-            headers: Auth.headers(),
-            body: JSON.stringify({
-                station_id:   penaltyStation.id,
-                station_name: penaltyStation.name,
-                penalty
-            })
-        });
-        if (res.ok) {
-            penaltyStation = null;
-            document.getElementById('penalty-station').textContent = 'Chưa chọn';
-            allStations.forEach(s => { if (s._marker) s._marker.setStyle({ fillColor: '#22c55e' }); });
-            loadScenarios();
-        } else {
-            alert('Lỗi khi áp dụng penalty!');
-        }
-    };
-
-    document.getElementById('btn-clear-all').onclick = async () => {
-        if (!confirm('Xóa tất cả kịch bản?')) return;
-        await fetch(`${CONFIG.API_BASE}/api/scenarios`, {
-            method: 'DELETE', headers: Auth.headers()
-        });
-        allStations.forEach(s => { if (s._marker) s._marker.setStyle({ fillColor: '#22c55e' }); });
-        loadScenarios();
-    };
+    drawAdminNetwork(networkData);
+    renderLinesList();
+    await loadScenarios();
 
     document.getElementById('btn-logout').onclick = () => {
         Auth.logout();
         document.getElementById('dashboard').style.display  = 'none';
         document.getElementById('login-page').style.display = 'flex';
     };
+
+    document.getElementById('btn-clear-all').onclick = async () => {
+        if (!confirm('Mở lại tất cả các tuyến?')) return;
+        await fetch(`${CONFIG.API_BASE}/api/scenarios`, {
+            method: 'DELETE', headers: Auth.headers()
+        });
+        closedLines.clear();
+        refreshNetworkStyle();
+        await loadScenarios();
+    };
+}
+
+function drawAdminNetwork(networkData) {
+    networkData.forEach(line => {
+        networkLayers[line.id] = [];
+        line.segments.forEach(coords => {
+            if (coords.length < 2) return;
+            const poly = L.polyline(coords, {
+                color:   line.color,
+                weight:  5,
+                opacity: 0.8
+            }).addTo(adminMap);
+            poly.bindTooltip(line.name, { sticky: true });
+            networkLayers[line.id].push(poly);
+        });
+    });
+}
+
+function renderLinesList() {
+    const container = document.getElementById('lines-list');
+    container.innerHTML = '';
+    allLines.forEach(line => {
+        const item = document.createElement('div');
+        item.className  = 'line-toggle-item';
+        item.id         = `line-item-${line.id}`;
+        item.innerHTML  = `
+            <div class="line-toggle-info">
+                <span class="line-color-dot" style="background:${line.color}"></span>
+                <span class="line-toggle-name">${line.short_name} – ${line.name}</span>
+            </div>
+            <button class="btn-toggle open" id="btn-line-${line.id}"
+                    onclick="toggleLine(${line.id}, '${line.name}')">
+                Mở
+            </button>
+        `;
+        container.appendChild(item);
+    });
+}
+
+async function toggleLine(lineId, lineName) {
+    if (closedLines.has(lineId)) {
+        // Tìm và xóa kịch bản đóng tuyến này
+        const res = await fetch(`${CONFIG.API_BASE}/api/scenarios`, {
+            headers: Auth.headers()
+        });
+        const scenarios = await res.json();
+        const sc = scenarios.find(s => s.line_id === lineId);
+        if (sc) {
+            await fetch(`${CONFIG.API_BASE}/api/scenarios/${sc.id}`, {
+                method: 'DELETE', headers: Auth.headers()
+            });
+        }
+        closedLines.delete(lineId);
+    } else {
+        await fetch(`${CONFIG.API_BASE}/api/scenarios/close_line`, {
+            method: 'POST',
+            headers: Auth.headers(),
+            body: JSON.stringify({ line_id: lineId, line_name: lineName })
+        });
+        closedLines.add(lineId);
+    }
+    refreshNetworkStyle();
+    await loadScenarios();
+}
+
+function refreshNetworkStyle() {
+    Object.entries(networkLayers).forEach(([lineIdStr, polys]) => {
+        const lineId = parseInt(lineIdStr);
+        const isClosed = closedLines.has(lineId);
+        const lineInfo = allLines.find(l => l.id === lineId);
+        polys.forEach(poly => {
+            poly.setStyle({
+                color:   isClosed ? '#6b7280' : (lineInfo ? lineInfo.color : '#888'),
+                opacity: isClosed ? 0.35 : 0.8,
+                dashArray: isClosed ? '8 6' : null
+            });
+        });
+        // Cập nhật nút toggle
+        const btn = document.getElementById(`btn-line-${lineId}`);
+        if (btn) {
+            if (isClosed) {
+                btn.textContent = 'Đóng';
+                btn.className   = 'btn-toggle closed';
+            } else {
+                btn.textContent = 'Mở';
+                btn.className   = 'btn-toggle open';
+            }
+        }
+    });
 }
 
 async function loadScenarios() {
@@ -180,31 +159,39 @@ async function loadScenarios() {
     });
     if (!res.ok) return;
     const scenarios = await res.json();
+
+    // Đồng bộ closedLines với server state
+    closedLines.clear();
+    scenarios.forEach(s => {
+        if (s.type === 'close_line') closedLines.add(s.line_id);
+    });
+    refreshNetworkStyle();
+
     const list = document.getElementById('scenario-list');
     list.innerHTML = '';
+    if (scenarios.length === 0) {
+        list.innerHTML = '<li class="no-scenario">Không có tuyến nào bị đóng</li>';
+        return;
+    }
     scenarios.forEach(s => {
         const li = document.createElement('li');
         li.className = 'scenario-item';
-        let label = '';
-        if (s.type === 'block')       label = `Đóng ga: ${s.station_name}`;
-        if (s.type === 'maintenance') label = `Bảo trì: ${s.from_name} ↔ ${s.to_name}`;
-        if (s.type === 'penalty')     label = `Tắc nghẽn: ${s.station_name} (x${s.penalty})`;
+        const lineInfo = allLines.find(l => l.id === s.line_id);
+        const color = lineInfo ? lineInfo.color : '#888';
         li.innerHTML = `
-            <div>
-                <span class="s-type ${s.type}">${s.type}</span>
-                <span class="s-name"> ${label}</span>
+            <div class="scenario-info">
+                <span class="s-dot" style="background:${color}"></span>
+                <span class="s-name">${s.line_name}</span>
             </div>
-            <button class="btn-remove" onclick="removeScenario(${s.id})">✕</button>
+            <button class="btn-remove" onclick="removeScenario(${s.id})">Mở lại</button>
         `;
         list.appendChild(li);
     });
 }
 
 async function removeScenario(id) {
-    if (!confirm('Xóa kịch bản này?')) return;
     await fetch(`${CONFIG.API_BASE}/api/scenarios/${id}`, {
         method: 'DELETE', headers: Auth.headers()
     });
-    allStations.forEach(s => { if (s._marker) s._marker.setStyle({ fillColor: '#22c55e' }); });
-    loadScenarios();
+    await loadScenarios();
 }

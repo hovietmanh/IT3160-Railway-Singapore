@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.config import settings
 from backend.app.api import auth, path, scenarios
-from backend.app.services.pathfinding import get_pathfinding_service
 from backend.app.services.scenario import get_scenario_service
 
 app = FastAPI(title="Pathfinding API")
@@ -21,7 +20,10 @@ app.include_router(scenarios.router)
 
 @app.on_event("startup")
 def startup():
-    get_pathfinding_service()
+    from backend.app.services.pathfinding import reload_pathfinding_service
+    svc = reload_pathfinding_service()
+    if len(svc.nodes) == 0:
+        print("WARNING: DB empty - run rawprocessing.py first!")
     get_scenario_service()
     print("Server ready!")
 

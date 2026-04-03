@@ -122,12 +122,12 @@ Bước 5 — Tạo database và nhập dữ liệu
 bashpython backend/scripts/init_db.py
 python backend/scripts/rawprocessing.py
 Bước 6 — Chạy backend
-bashpython -m uvicorn backend.app.main:app --reload --port 8000
+bash python -m uvicorn backend.app.main:app --reload --port 8000
 Bước 7 — Chạy frontend
 Mở terminal mới:
 bashpython -m http.server 8080 --directory frontend
 Truy cập
-TrangURLGiao diện người dùnghttp://localhost:8080Giao diện adminhttp://localhost:8080/admin.htmlAPI docs (Swagger)http://127.0.0.1:8000/docs
+TrangURLGiao diện người dùng http://localhost:8080Giao diện admin http://localhost:8080/admin.htmlAPI docs (Swagger)http://127.0.0.1:8000/docs
 
 Hướng dẫn sử dụng
 Người dùng
@@ -170,3 +170,13 @@ LoạiCơ chếTác độngĐóng gaweight = ∞ cho tất cả cạnh vào/ra g
 
 Tài khoản mặc định
 UsernamePasswordRoleadminadmin123admin
+
+cd "C:\HUST\AI Project\IT3160-Project-GoogleMap"
+venv\Scripts\Activate.ps1
+del backend\data\pathfinding.db
+python backend/scripts/init_db.py
+python backend/scripts/rawprocessing.py
+python -m uvicorn backend.app.main:app --reload --port 8000
+python -m http.server 8080 --directory "C:\HUST\AI Project\IT3160-Project-GoogleMap\frontend"
+ http://localhost:8080
+ http://localhost:8080/admin.html
