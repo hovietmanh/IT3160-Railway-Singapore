@@ -27,22 +27,89 @@
                 <button id="btn-logout" class="btn-sm danger">Logout</button>
             </div>
 
-            <!-- Quản lý tuyến -->
-            <div class="section">
-                <div class="section-title">Đóng / Mở tuyến tàu</div>
-                <p class="hint">Khi đóng tuyến, toàn bộ đoạn ray trên tuyến đó sẽ không được sử dụng. Các ga vẫn hoạt động với tuyến khác.</p>
+            <!-- Tabs -->
+            <div class="tab-bar">
+                <button class="tab active" id="tab-route"    onclick="switchTab('route')">Tìm đường</button>
+                <button class="tab"        id="tab-lines"    onclick="switchTab('lines')">Tuyến</button>
+                <button class="tab"        id="tab-stations" onclick="switchTab('stations')">Ga</button>
+            </div>
+
+            <!-- ── Tab: Tìm đường ── -->
+            <div id="panel-route" class="tab-panel">
+                <p class="hint" id="route-instruction">Click bản đồ để chọn <strong>điểm xuất phát</strong></p>
+
+                <!-- Điểm xuất phát -->
+                <div class="point-card" id="route-start-card">
+                    <div class="point-card-label">
+                        <span class="point-dot start-dot"></span> Xuất phát
+                    </div>
+                    <div class="point-card-name empty" id="route-start-name">Chưa chọn</div>
+                    <div id="route-start-lines"></div>
+                    <button class="point-clear" onclick="clearRoutePoint('start')">✕</button>
+                </div>
+
+                <!-- Điểm đến -->
+                <div class="point-card" id="route-end-card">
+                    <div class="point-card-label">
+                        <span class="point-dot end-dot"></span> Điểm đến
+                    </div>
+                    <div class="point-card-name empty" id="route-end-name">Chưa chọn</div>
+                    <div id="route-end-lines"></div>
+                    <button class="point-clear" onclick="clearRoutePoint('end')">✕</button>
+                </div>
+
+                <div style="display:flex;gap:6px">
+                    <button class="btn primary" id="btn-find-route" disabled onclick="findAdminRoute()">Tìm đường</button>
+                    <button class="btn secondary" onclick="clearAdminRoute()">Xóa</button>
+                </div>
+
+                <!-- Thông báo tuyến/ga bị đóng chặn -->
+                <div id="route-blocked-box"></div>
+
+                <!-- Kết quả -->
+                <div id="route-result" style="display:none">
+                    <div class="result-stats">
+                        <span id="route-stops"></span>
+                        <span id="route-dist"></span>
+                    </div>
+                    <div id="route-lines-used"></div>
+                    <div class="result-path" id="route-path"></div>
+                    <div id="route-alt"></div>
+                </div>
+            </div>
+
+            <!-- ── Tab: Quản lý tuyến ── -->
+            <div id="panel-lines" class="tab-panel" style="display:none">
+                <p class="hint">Đóng tuyến → toàn bộ đoạn ray không dùng được. Ga vẫn hoạt động trên tuyến khác.</p>
                 <div id="lines-list"></div>
             </div>
 
+            <!-- ── Tab: Quản lý ga ── -->
+            <div id="panel-stations" class="tab-panel" style="display:none">
+                <p class="hint">Đóng ga → không thể xuất phát, đến, hoặc đi qua ga đó.</p>
+                <input id="station-search" class="search-input" type="text"
+                       placeholder="Tìm ga..." oninput="filterStations(this.value)"/>
+                <div id="stations-list"></div>
+            </div>
+
             <!-- Kịch bản đang hoạt động -->
-            <div class="section">
-                <div class="section-title">Tuyến đang bị đóng</div>
+            <div class="section scenarios-section">
+                <div class="section-title">Đang áp dụng</div>
                 <ul id="scenario-list"></ul>
                 <button class="btn danger" id="btn-clear-all">Mở lại tất cả</button>
             </div>
         </div>
 
         <div id="admin-map"></div>
+    </div>
+
+    <!-- Modal thông báo -->
+    <div id="mrt-modal-overlay" style="display:none">
+        <div id="mrt-modal">
+            <div id="mrt-modal-title"></div>
+            <div id="mrt-modal-body"></div>
+            <div id="mrt-modal-actions"></div>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

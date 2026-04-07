@@ -45,6 +45,9 @@
             <button class="btn secondary" id="btn-clear">Xóa tất cả</button>
         </div>
 
+        <!-- Thông báo tuyến/ga bị đóng chặn đường -->
+        <div id="blocked-box"></div>
+
         <!-- Kết quả -->
         <div id="result-box">
             <h3>Kết quả</h3>
@@ -60,12 +63,23 @@
             <div id="result-lines"></div>
             <!-- Chuỗi ga -->
             <div id="result-path"></div>
+            <!-- Thông báo ga thay thế -->
+            <div id="result-alt"></div>
         </div>
 
         <!-- Chú thích tuyến -->
         <div id="legend-box">
             <div class="legend-title">Các tuyến MRT</div>
             <div id="legend-list"></div>
+        </div>
+    </div>
+
+    <!-- Modal thông báo -->
+    <div id="mrt-modal-overlay" style="display:none">
+        <div id="mrt-modal">
+            <div id="mrt-modal-title"></div>
+            <div id="mrt-modal-body"></div>
+            <div id="mrt-modal-actions"></div>
         </div>
     </div>
 

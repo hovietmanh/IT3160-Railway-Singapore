@@ -12,34 +12,46 @@ class CloseLineRequest(BaseModel):
     line_name: str
 
 
+class CloseStationRequest(BaseModel):
+    station_id:   int
+    station_name: str
+
+
+# ── Close line ────────────────────────────────────────────────────────────────
+
 @router.post("/scenarios/close_line")
 def close_line(req: CloseLineRequest, _=Depends(require_admin)):
-    """Đóng một tuyến tàu - tất cả cạnh trên tuyến sẽ không dùng được."""
-    service = get_pathfinding_service()
-    if req.line_id not in service.lines:
+    svc = get_pathfinding_service()
+    if req.line_id not in svc.lines:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy tuyến id={req.line_id}")
-    scenario_service = get_scenario_service()
-    return scenario_service.close_line(req.line_id, req.line_name)
+    return get_scenario_service().close_line(req.line_id, req.line_name)
 
+
+# ── Close station ─────────────────────────────────────────────────────────────
+
+@router.post("/scenarios/close_station")
+def close_station(req: CloseStationRequest, _=Depends(require_admin)):
+    svc = get_pathfinding_service()
+    if req.station_id not in svc.nodes:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy ga id={req.station_id}")
+    return get_scenario_service().close_station(req.station_id, req.station_name)
+
+
+# ── Scenarios CRUD ────────────────────────────────────────────────────────────
 
 @router.get("/scenarios")
-def get_scenarios(_=Depends(require_admin)):
-    """Lấy danh sách kịch bản đang hoạt động."""
-    service = get_scenario_service()
-    return service.active_scenarios
+def get_scenarios():
+    """Public – user page cũng đọc được để polling phát hiện thay đổi."""
+    return get_scenario_service().active_scenarios
 
 
 @router.delete("/scenarios/{scenario_id}")
 def remove_scenario(scenario_id: int, _=Depends(require_admin)):
-    """Xóa (mở lại) một kịch bản đóng tuyến."""
-    service = get_scenario_service()
-    service.remove_scenario(scenario_id)
-    return {"message": f"Đã mở lại tuyến (kịch bản {scenario_id})"}
+    get_scenario_service().remove_scenario(scenario_id)
+    return {"message": f"Đã mở lại (kịch bản {scenario_id})"}
 
 
 @router.delete("/scenarios")
 def clear_all(_=Depends(require_admin)):
-    """Xóa tất cả kịch bản - mở lại tất cả tuyến."""
-    service = get_scenario_service()
-    service.clear_all()
-    return {"message": "Đã mở lại tất cả tuyến"}
+    get_scenario_service().clear_all()
+    return {"message": "Đã mở lại tất cả"}

@@ -11,12 +11,53 @@ let endMarker      = null;
 let clickedStart   = null; // marker điểm click của user (start)
 let clickedEnd     = null; // marker điểm click của user (end)
 
+// Singapore bounding box (giới hạn cứng – không cho pan/zoom ra ngoài)
+// Sát biên giới thực tế của Singapore (đảo chính)
+// Bắc: ngay dưới eo biển Johor  | Nam: mũi phía nam đảo Sentosa
+// Tây: cực tây Tuas              | Đông: cực đông Changi
+const SG_BOUNDS = L.latLngBounds(
+    L.latLng(1.2050, 103.6200),   // SW
+    L.latLng(1.4710, 104.0100)    // NE
+);
+
 function initMap() {
-    map = L.map('map').setView([1.3521, 103.8198], 12);
+    map = L.map('map', {
+        maxBounds:          SG_BOUNDS,
+        maxBoundsViscosity: 1.0,   // cứng – không thể kéo ra ngoài
+        minZoom:            13,
+        maxZoom:            18,
+    }).setView([1.3521, 103.8198], 12);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
         attribution: '© OpenStreetMap'
     }).addTo(map);
+
+    // Pane riêng cho route – nằm trên network (overlayPane = 400)
+    map.createPane('routePane').style.zIndex = 450;
+
+    // Mask tối che toàn bộ phần ngoài Singapore
+    _addSingaporeMask(map);
+}
+
+function _addSingaporeMask(m) {
+    // Pane nằm ngay trên tile (z 200) nhưng dưới stations/routes (z 400+)
+    if (!m.getPane('maskPane')) {
+        m.createPane('maskPane').style.zIndex = 250;
+    }
+    // Đa giác đảo ngược: vòng ngoài = toàn thế giới, lỗ = vùng Singapore
+    // fillOpacity: 1 → hoàn toàn che phần ngoài, chỉ còn Singapore hiện
+    const world  = [[-90, -180], [-90, 180], [90, 180], [90, -180]];
+    const sgHole = [
+        [1.1304, 103.5654], [1.4784, 103.5654],
+        [1.4784, 104.0858], [1.1304, 104.0858]
+    ];
+    L.polygon([world, sgHole], {
+        stroke:      false,
+        fillColor:   '#0f172a',   // khớp màu nền trang
+        fillOpacity: 1.0,         // che hoàn toàn – không thấy gì bên ngoài SG
+        interactive: false,
+        pane:        'maskPane',
+    }).addTo(m);
 }
 
 /* ----- Vẽ mạng lưới tuyến tàu ----- */
@@ -125,20 +166,22 @@ function drawRoute(segments) {
         // Viền màu tuyến (dày hơn, phía dưới)
         const border = L.polyline(seg.coords, {
             color:     seg.line_color || '#888888',
-            weight:    10,
-            opacity:   0.9,
+            weight:    18,
+            opacity:   1,
             lineCap:  'round',
-            lineJoin: 'round'
+            lineJoin: 'round',
+            pane:     'routePane',
         }).addTo(map);
         routeLayers.push(border);
 
         // Đường trắng phía trên
         const white = L.polyline(seg.coords, {
             color:    '#ffffff',
-            weight:   5,
+            weight:   9,
             opacity:  1,
             lineCap:  'round',
-            lineJoin: 'round'
+            lineJoin: 'round',
+            pane:     'routePane',
         }).addTo(map);
         white.bindTooltip(seg.line_name || '', { sticky: true });
         routeLayers.push(white);

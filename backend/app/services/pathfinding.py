@@ -183,6 +183,79 @@ class PathfindingService:
                 return cid
         return None
 
+    # ── A* with original weights (blocking analysis) ─────────────────────────
+
+    def a_star_original(self, start_id: int, goal_id: int) -> Optional[List[int]]:
+        """A* chạy trên trọng số gốc – dùng để tìm đường 'tự nhiên' khi không có đóng."""
+        open_set  = [(0.0, start_id)]
+        came_from: Dict[int, int]   = {}
+        g_score:   Dict[int, float] = {start_id: 0.0}
+        closed:    set              = set()
+
+        while open_set:
+            _, current = heapq.heappop(open_set)
+            if current in closed:
+                continue
+            closed.add(current)
+            if current == goal_id:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.append(start_id)
+                return list(reversed(path))
+            for neighbor, cid in self.adj_list.get(current, []):
+                if neighbor in closed:
+                    continue
+                w = self.original_weights.get(cid, float("inf"))
+                if w == float("inf"):
+                    continue
+                tentative_g = g_score.get(current, float("inf")) + w
+                if tentative_g < g_score.get(neighbor, float("inf")):
+                    came_from[neighbor] = current
+                    g_score[neighbor]   = tentative_g
+                    f = tentative_g + self.heuristic(neighbor, goal_id)
+                    heapq.heappush(open_set, (f, neighbor))
+        return None
+
+    def find_blocking_info(
+        self,
+        start_lat: float, start_lon: float,
+        goal_lat: float, goal_lon: float,
+        closed_station_ids: set,
+        closed_line_ids: set,
+    ) -> Optional[dict]:
+        """
+        Tìm những tuyến/ga đang bị đóng nằm trên đường đi tự nhiên.
+        Trả về {"lines": [...], "stations": [...]} hoặc None nếu không có đường gốc.
+        """
+        start_id = self.find_nearest_station(start_lat, start_lon)
+        goal_id  = self.find_nearest_station(goal_lat, goal_lon)
+        if start_id is None or goal_id is None:
+            return None
+
+        natural_path = self.a_star_original(start_id, goal_id)
+        if natural_path is None:
+            return None
+
+        blocked_lines:    list = []
+        blocked_stations: list = []
+        seen_lines:       set  = set()
+
+        for sid in natural_path:
+            if sid in closed_station_ids:
+                blocked_stations.append(sid)
+
+        for i in range(len(natural_path) - 1):
+            cid = self._find_edge_between(natural_path[i], natural_path[i + 1])
+            if cid:
+                lid = self.edges[cid]["line_id"]
+                if lid in closed_line_ids and lid not in seen_lines:
+                    seen_lines.add(lid)
+                    blocked_lines.append(lid)
+
+        return {"line_ids": blocked_lines, "station_ids": blocked_stations}
+
     # ── Scenario mutations ───────────────────────────────────────────────────
 
     def close_line(self, line_id: int):
@@ -193,6 +266,18 @@ class PathfindingService:
     def open_line(self, line_id: int):
         for cid, e in self.edges.items():
             if e["line_id"] == line_id:
+                self.current_weights[cid] = self.original_weights[cid]
+
+    def close_station(self, station_id: int):
+        """Đóng ga: tất cả cạnh kết nối với ga này bị đặt weight = inf."""
+        for cid, e in self.edges.items():
+            if e["from"] == station_id or e["to"] == station_id:
+                self.current_weights[cid] = float("inf")
+
+    def open_station(self, station_id: int):
+        """Mở lại ga: khôi phục weight gốc cho các cạnh kết nối với ga."""
+        for cid, e in self.edges.items():
+            if e["from"] == station_id or e["to"] == station_id:
                 self.current_weights[cid] = self.original_weights[cid]
 
     def reset_weights_in_ram(self):

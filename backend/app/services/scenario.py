@@ -1,9 +1,7 @@
 """
-Chỉ hỗ trợ 1 loại kịch bản: Đóng tuyến (close_line).
-
-Khi đóng tuyến X:
-- Tất cả cạnh có line_id = X bị đặt weight = inf
-- Các ga trên tuyến X vẫn có thể dùng nếu có tuyến khác chạy qua
+Hỗ trợ 2 loại kịch bản:
+  - close_line    : đóng toàn bộ tuyến (tất cả cạnh thuộc tuyến → weight = inf)
+  - close_station : đóng một ga     (tất cả cạnh nối với ga đó → weight = inf)
 """
 
 from typing import List, Dict, Optional
@@ -15,46 +13,73 @@ class ScenarioService:
         self.active_scenarios: List[Dict] = []
         self._counter = 0
 
+    # ── Close line ────────────────────────────────────────────────────────────
+
     def close_line(self, line_id: int, line_name: str) -> Dict:
-        # Kiểm tra xem tuyến đã bị đóng chưa
         for s in self.active_scenarios:
-            if s["line_id"] == line_id:
-                return s  # Đã đóng rồi, trả về kịch bản hiện có
+            if s["type"] == "close_line" and s["line_id"] == line_id:
+                return s
 
-        service = get_pathfinding_service()
-        service.close_line(line_id)
-
+        get_pathfinding_service().close_line(line_id)
         self._counter += 1
         scenario = {
             "id":        self._counter,
             "type":      "close_line",
             "line_id":   line_id,
-            "line_name": line_name
+            "line_name": line_name,
         }
         self.active_scenarios.append(scenario)
-        print(f"[Scenario {self._counter}] Close line: {line_name} (line_id={line_id})")
+        print(f"[Scenario {self._counter}] Close line: {line_name} (id={line_id})")
         return scenario
 
+    # ── Close station ─────────────────────────────────────────────────────────
+
+    def close_station(self, station_id: int, station_name: str) -> Dict:
+        for s in self.active_scenarios:
+            if s["type"] == "close_station" and s["station_id"] == station_id:
+                return s
+
+        get_pathfinding_service().close_station(station_id)
+        self._counter += 1
+        scenario = {
+            "id":           self._counter,
+            "type":         "close_station",
+            "station_id":   station_id,
+            "station_name": station_name,
+        }
+        self.active_scenarios.append(scenario)
+        print(f"[Scenario {self._counter}] Close station: {station_name} (id={station_id})")
+        return scenario
+
+    # ── Remove / clear ────────────────────────────────────────────────────────
+
     def remove_scenario(self, scenario_id: int):
-        to_remove = next((s for s in self.active_scenarios if s["id"] == scenario_id), None)
-        if to_remove is None:
+        target = next((s for s in self.active_scenarios if s["id"] == scenario_id), None)
+        if target is None:
             return
         self.active_scenarios = [s for s in self.active_scenarios if s["id"] != scenario_id]
         self._replay_all()
-        print(f"[ScenarioService] Removed scenario {scenario_id} ({to_remove['line_name']})")
+        print(f"[ScenarioService] Removed scenario {scenario_id}")
 
     def clear_all(self):
-        service = get_pathfinding_service()
-        service.reset_weights_in_ram()
+        get_pathfinding_service().reset_weights_in_ram()
         self.active_scenarios = []
         print("[ScenarioService] All scenarios cleared")
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
     def _replay_all(self):
-        service = get_pathfinding_service()
-        service.reset_weights_in_ram()
+        svc = get_pathfinding_service()
+        svc.reset_weights_in_ram()
         for s in self.active_scenarios:
             if s["type"] == "close_line":
-                service.close_line(s["line_id"])
+                svc.close_line(s["line_id"])
+            elif s["type"] == "close_station":
+                svc.close_station(s["station_id"])
+
+    def closed_station_ids(self) -> set:
+        return {s["station_id"] for s in self.active_scenarios
+                if s["type"] == "close_station"}
 
 
 _service: Optional[ScenarioService] = None

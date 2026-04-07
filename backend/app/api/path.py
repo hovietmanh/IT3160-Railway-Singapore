@@ -25,13 +25,15 @@ def get_all_lines():
 
 @router.get("/stations")
 def get_all_stations():
-    """Trả về danh sách ga với thông tin tuyến."""
+    """Trả về danh sách ga với thông tin tuyến và trạng thái đóng/mở."""
+    from backend.app.services.scenario import get_scenario_service
+    closed_ids = get_scenario_service().closed_station_ids()
+
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id, name, lat, lon FROM stations ORDER BY name")
         rows = cursor.fetchall()
 
-        # Lấy line info cho mỗi ga (dựa trên connections)
         station_lines: dict = {}
         cursor.execute("""
             SELECT DISTINCT c.from_id, l.id, l.name, l.short_name, l.color
@@ -48,14 +50,47 @@ def get_all_stations():
 
     return [
         {
-            "id":    r["id"],
-            "name":  r["name"],
-            "lat":   r["lat"],
-            "lon":   r["lon"],
-            "lines": station_lines.get(r["id"], [])
+            "id":        r["id"],
+            "name":      r["name"],
+            "lat":       r["lat"],
+            "lon":       r["lon"],
+            "lines":     station_lines.get(r["id"], []),
+            "is_closed": r["id"] in closed_ids,
         }
         for r in rows
     ]
+
+
+@router.get("/nearby_stations")
+def get_nearby_stations(lat: float, lon: float, limit: int = 5):
+    """Trả về N ga gần nhất với tọa độ cho trước (dùng khi tìm ga thay thế)."""
+    service = get_pathfinding_service()
+
+    distances = sorted(
+        [(service.haversine(lat, lon, nlat, nlon), nid)
+         for nid, (nlat, nlon) in service.nodes.items()]
+    )[:limit]
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        result = []
+        for _, nid in distances:
+            cursor.execute("SELECT id, name FROM stations WHERE id=?", (nid,))
+            row = cursor.fetchone()
+            if not row:
+                continue
+            cursor.execute("""
+                SELECT DISTINCT l.id, l.name, l.short_name, l.color
+                FROM connections c JOIN lines l ON c.line_id = l.id
+                WHERE c.from_id = ?
+            """, (nid,))
+            lines = [{"id": r["id"], "name": r["name"],
+                      "short_name": r["short_name"], "color": r["color"]}
+                     for r in cursor.fetchall()]
+            nlat2, nlon2 = service.nodes[nid]
+            result.append({"id": nid, "name": row["name"],
+                           "lat": nlat2, "lon": nlon2, "lines": lines})
+    return result
 
 
 @router.get("/nearest_station")
@@ -98,7 +133,33 @@ def find_route(start_lat: float, start_lon: float,
     result  = service.find_path(start_lat, start_lon, goal_lat, goal_lon)
 
     if result is None:
-        raise HTTPException(status_code=404, detail="Không tìm được đường đi")
+        from backend.app.services.scenario import get_scenario_service
+        scen_svc = get_scenario_service()
+        closed_sids = scen_svc.closed_station_ids()
+        closed_lids = {s["line_id"] for s in scen_svc.active_scenarios
+                       if s["type"] == "close_line"}
+
+        blocking = service.find_blocking_info(
+            start_lat, start_lon, goal_lat, goal_lon, closed_sids, closed_lids
+        )
+
+        detail: dict = {"message": "Không tìm được đường đi", "blocked": {"lines": [], "stations": []}}
+        if blocking:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                for lid in blocking["line_ids"]:
+                    li = service.lines.get(lid, {})
+                    detail["blocked"]["lines"].append({
+                        "id": lid, "name": li.get("name", ""), "short_name": li.get("short_name", ""), "color": li.get("color", "#888"),
+                    })
+                for sid in blocking["station_ids"]:
+                    cursor.execute("SELECT name FROM stations WHERE id=?", (sid,))
+                    row = cursor.fetchone()
+                    detail["blocked"]["stations"].append({
+                        "id": sid, "name": row["name"] if row else str(sid),
+                    })
+
+        raise HTTPException(status_code=404, detail=detail)
 
     path_ids = result["path"]
 
@@ -144,12 +205,18 @@ def find_route(start_lat: float, start_lon: float,
                 coords = [[ulat, ulon], [vlat, vlon]]
 
             # Orient geometry so it starts near station u
+            ulat, ulon = service.nodes[u]
+            vlat, vlon = service.nodes[v]
             if coords and len(coords) >= 2:
-                ulat, ulon = service.nodes[u]
                 dist_fwd = abs(coords[0][0] - ulat) + abs(coords[0][1] - ulon)
                 dist_rev = abs(coords[-1][0] - ulat) + abs(coords[-1][1] - ulon)
                 if dist_rev < dist_fwd:
                     coords = list(reversed(coords))
+
+            # Snap cả hai đầu về đúng tọa độ ga – loại bỏ khoảng trống tại điểm chuyển tuyến
+            if coords:
+                coords[0]  = [ulat, ulon]
+                coords[-1] = [vlat, vlon]
 
             # Merge consecutive same-line segments
             if (segments_out and segments_out[-1]["line_id"] == lid
@@ -157,6 +224,9 @@ def find_route(start_lat: float, start_lon: float,
                 segments_out[-1]["coords"].extend(coords[1:])
                 segments_out[-1]["to_id"] = v
             else:
+                # Tại điểm chuyển tuyến: đảm bảo segment trước kết thúc đúng tại ga u
+                if segments_out and segments_out[-1]["coords"]:
+                    segments_out[-1]["coords"][-1] = [ulat, ulon]
                 segments_out.append({
                     "from_id":    u,
                     "to_id":      v,
