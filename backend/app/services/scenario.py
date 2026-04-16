@@ -66,6 +66,16 @@ class ScenarioService:
         self.active_scenarios = []
         print("[ScenarioService] All scenarios cleared")
 
+    def clear_lines(self):
+        self.active_scenarios = [s for s in self.active_scenarios if s["type"] != "close_line"]
+        self._replay_all()
+        print("[ScenarioService] All line scenarios cleared")
+
+    def clear_stations(self):
+        self.active_scenarios = [s for s in self.active_scenarios if s["type"] != "close_station"]
+        self._replay_all()
+        print("[ScenarioService] All station scenarios cleared")
+
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _replay_all(self):

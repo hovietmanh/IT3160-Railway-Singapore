@@ -199,11 +199,8 @@ body { font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; 
 /* ===== MAP ===== */
 #map { flex: 1; }
 
-/* Background tối để phần ngoài Singapore không flash trắng khi load tiles */
-#map .leaflet-container,
-#admin-map .leaflet-container,
 .leaflet-container {
-    background: #0f172a !important;
+    background: #f2efe9 !important;
 }
 
 /* ===== CLICK CURSOR trên map khi đang chọn điểm ===== */

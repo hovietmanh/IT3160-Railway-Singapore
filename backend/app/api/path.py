@@ -309,6 +309,24 @@ def get_network():
                 coords.append(list(pos_v))
         return coords
 
+    def build_edge_coords(u: int, v: int) -> list | None:
+        """Geometry có hướng + snap endpoint cho một cặp ga liền kề."""
+        key = (min(u, v), max(u, v))
+        seg = geo_map.get(key)
+        ulat, ulon = stations.get(u, (None, None))
+        vlat, vlon = stations.get(v, (None, None))
+        if ulat is None or vlat is None:
+            return None
+        if seg and len(seg) >= 2:
+            seg = list(seg)
+            if (abs(seg[-1][0] - ulat) + abs(seg[-1][1] - ulon) <
+                    abs(seg[0][0] - ulat) + abs(seg[0][1] - ulon)):
+                seg = list(reversed(seg))
+            seg[0]  = [ulat, ulon]
+            seg[-1] = [vlat, vlon]
+            return seg
+        return [[ulat, ulon], [vlat, vlon]]
+
     result = []
     for lid, info in lines.items():
         dirs = line_dirs.get(lid, {})
@@ -317,12 +335,28 @@ def get_network():
             coords = build_polyline(dirs[dir_id])
             if len(coords) >= 2:
                 line_segments.append(coords)
+
+        # Edges theo từng cặp ga liền kề (undirected, deduplicated)
+        seen_pairs: set = set()
+        edges: list = []
+        for dir_id in sorted(dirs):
+            for i in range(len(dirs[dir_id]) - 1):
+                u, v = dirs[dir_id][i], dirs[dir_id][i + 1]
+                pair = (min(u, v), max(u, v))
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                ec = build_edge_coords(u, v)
+                if ec and len(ec) >= 2:
+                    edges.append({"from_id": u, "to_id": v, "coords": ec})
+
         result.append({
             "id":         info["id"],
             "name":       info["name"],
             "short_name": info["short_name"],
             "color":      info["color"],
             "segments":   line_segments,
+            "edges":      edges,
         })
 
     return result

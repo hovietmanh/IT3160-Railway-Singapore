@@ -95,8 +95,22 @@
             <!-- Kịch bản đang hoạt động -->
             <div class="section scenarios-section">
                 <div class="section-title">Đang áp dụng</div>
-                <ul id="scenario-list"></ul>
-                <button class="btn danger" id="btn-clear-all">Mở lại tất cả</button>
+
+                <div class="scenario-group">
+                    <div class="scenario-group-header">
+                        <span class="scenario-group-label">Tuyến đang đóng</span>
+                        <button class="btn danger btn-sm" id="btn-clear-lines">Mở lại tất cả tuyến</button>
+                    </div>
+                    <ul id="scenario-list-lines"></ul>
+                </div>
+
+                <div class="scenario-group">
+                    <div class="scenario-group-header">
+                        <span class="scenario-group-label">Ga đang đóng</span>
+                        <button class="btn danger btn-sm" id="btn-clear-stations">Mở lại tất cả ga</button>
+                    </div>
+                    <ul id="scenario-list-stations"></ul>
+                </div>
             </div>
         </div>
 
@@ -114,6 +128,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/admin.js"></script>
 </body>

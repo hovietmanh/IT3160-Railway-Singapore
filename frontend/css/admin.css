@@ -124,9 +124,20 @@ body { font-family: sans-serif; }
 
 .btn-sm { padding: 4px 8px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer; }
 .btn-sm.danger { background: #dc2626; color: #fff; }
+.btn-sm.danger:hover { background: #b91c1c; }
 
 /* ===== SCENARIO LIST ===== */
-#scenario-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+#scenario-list-lines,
+#scenario-list-stations { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+
+.scenario-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.scenario-group:last-child { margin-bottom: 0; }
+
+.scenario-group-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 4px; border-bottom: 1px solid #1e293b;
+}
+.scenario-group-label { color: #94a3b8; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
 
 .scenario-item {
     background: #0f172a; border-radius: 6px; padding: 8px 10px;
@@ -269,3 +280,38 @@ body { font-family: sans-serif; }
 
 /* ===== MAP ===== */
 #admin-map { flex: 1; }
+.leaflet-container { background: #f2efe9 !important; }
+
+/* ===== ADMIN MAP POPUP ===== */
+.admin-map-popup .leaflet-popup-content-wrapper {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.6);
+    padding: 0;
+}
+.admin-map-popup .leaflet-popup-content { margin: 0; }
+.admin-map-popup .leaflet-popup-tip     { background: #1e293b; }
+.admin-map-popup .leaflet-popup-close-button {
+    color: #64748b !important;
+    font-size: 16px !important;
+    top: 5px !important; right: 7px !important;
+    line-height: 1 !important;
+}
+.admin-map-popup .leaflet-popup-close-button:hover { color: #f1f5f9 !important; }
+
+.admin-popup-body {
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    min-width: 150px;
+}
+.admin-popup-title {
+    font-size: 13px; font-weight: 700; color: #f1f5f9;
+    display: flex; align-items: center; gap: 5px;
+    padding-right: 14px; /* tránh đè nút ✕ */
+}
+.admin-popup-short {
+    font-size: 11px; color: #94a3b8; font-weight: 500;
+}
+.admin-popup-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.admin-popup-btn    { width: 100%; }

@@ -45,6 +45,18 @@ def get_scenarios():
     return get_scenario_service().active_scenarios
 
 
+@router.delete("/scenarios/lines")
+def clear_lines(_=Depends(require_admin)):
+    get_scenario_service().clear_lines()
+    return {"message": "Đã mở lại tất cả tuyến"}
+
+
+@router.delete("/scenarios/stations")
+def clear_stations(_=Depends(require_admin)):
+    get_scenario_service().clear_stations()
+    return {"message": "Đã mở lại tất cả ga"}
+
+
 @router.delete("/scenarios/{scenario_id}")
 def remove_scenario(scenario_id: int, _=Depends(require_admin)):
     get_scenario_service().remove_scenario(scenario_id)
