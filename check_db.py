@@ -1,4 +1,99 @@
+import json
 import sqlite3
+import sys
+
+sys.stdout.reconfigure(encoding='utf-8')
+
+
+def count_lines_in_export(path='backend/scripts/MRT.json'):
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+
+    lines = {}
+    for el in data.get('elements', []):
+        if el.get('type') != 'relation':
+            continue
+        tags = el.get('tags', {})
+        if tags.get('type') != 'route':
+            continue
+        if tags.get('route') not in ('subway', 'light_rail'):
+            continue
+        ref = tags.get('ref', '?')
+        if ref not in lines:
+            lines[ref] = {
+                'ref':     ref,
+                'name':    tags.get('name', ''),
+                'route':   tags.get('route', ''),
+                'colour':  tags.get('colour', ''),
+                'network': tags.get('network', ''),
+            }
+
+    print(f"Số tuyến MRT/LRT trong export.json: {len(lines)}")
+    for ref, info in sorted(lines.items()):
+        kind = 'MRT' if info['route'] == 'subway' else 'LRT'
+        print(f"  [{kind}] {ref:8s}  {info['colour']:10s}  {info['name']}")
+
+    return lines
+
+
+count_lines_in_export()
+print()
+
+
+def find_station_by_name(query, path='backend/scripts/MRT.json'):
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+
+    query_lower = query.lower()
+    matches = []
+    for el in data.get('elements', []):
+        if el.get('type') != 'node':
+            continue
+        name = (el.get('tags') or {}).get('name', '')
+        if query_lower in name.lower():
+            matches.append({'id': el['id'], 'name': name, 'lat': el['lat'], 'lon': el['lon']})
+
+    if matches:
+        print(f"Tìm thấy {len(matches)} node khớp với '{query}':")
+        for m in matches:
+            print(f"  id={m['id']}  lat={m['lat']}  lon={m['lon']}  name={m['name']}")
+    else:
+        print(f"Không tìm thấy node nào có tên chứa '{query}'.")
+
+    return matches
+
+
+find_station_by_name('Phoenix')
+find_station_by_name('Choa Chu Kang')
+print()
+
+
+def find_station_in_db(query, db_path='backend/data/pathfinding.db'):
+    conn = sqlite3.connect(db_path)
+    cur  = conn.cursor()
+    cur.execute("SELECT id, name, lat, lon FROM stations WHERE name LIKE ?", (f'%{query}%',))
+    rows = cur.fetchall()
+
+    cur2 = conn.cursor()
+    if rows:
+        print(f"Tìm thấy {len(rows)} ga trong DB khớp với '{query}':")
+        for r in rows:
+            cur2.execute("""
+                SELECT DISTINCT l.short_name, l.color FROM connections c
+                JOIN lines l ON c.line_id = l.id WHERE c.from_id = ?
+            """, (r[0],))
+            lines = [f"{row[0]}" for row in cur2.fetchall()]
+            print(f"  id={r[0]}  name={r[1]}  lat={r[2]}  lon={r[3]}  lines={lines}")
+    else:
+        print(f"Không tìm thấy ga nào trong DB có tên chứa '{query}'.")
+
+    conn.close()
+    return rows
+
+
+find_station_in_db('Choa Chu Kang')
+print()
+
 
 conn = sqlite3.connect('backend/data/pathfinding.db')
 cur = conn.cursor()

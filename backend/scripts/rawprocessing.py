@@ -1,12 +1,12 @@
 """
-rawprocessing.py  —  Build graph from export.json (OSM data).
+rawprocessing.py  —  Build graph from MRT.json + LRT.json (OSM data).
 
 Algorithm:
   Each OSM relation = one direction of a line.  Opposite directions use
   DIFFERENT platform node IDs for the same physical station, so we
   deduplicate by station NAME, not node ID.
 
-  1. Load export.json, build node_map / way_map.
+  1. Load MRT.json + LRT.json, merge elements, build node_map / way_map.
   2. Collect all stop names across all directions of a line.
   3. For each unique name, choose one canonical node (first seen).
   4. Deduplicate directions by name sequence (ignore reverses).
@@ -18,6 +18,17 @@ Algorithm:
        d. Create connection (s1, s2, weight=haversine, line_id).
   6. Insert lines, stations, connections (bidirectional),
      rail_geometry, line_stops into DB.
+
+  LRT interchange stations (e.g. "Sengkang", "Punggol", "Choa Chu Kang",
+  "Bukit Panjang") share the same canonical name as the corresponding MRT
+  station, so transfers are handled automatically via canonical dedup.
+
+  NOTE: LRT.json must be exported with "out body;" (not "out geom;") so
+  that stop nodes carry their name tags.  Overpass query:
+      [out:json][timeout:60];
+      (relation["route"~"light_rail|monorail"]["network"="Singapore Rail"];);
+      >>;
+      out body;
 """
 
 import json
@@ -28,25 +39,37 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-DB_PATH = Path("backend/data/pathfinding.db")
-EXPORT  = Path("backend/scripts/export.json")
+DB_PATH    = Path("backend/data/pathfinding.db")
+MRT_EXPORT = Path("backend/scripts/MRT.json")
+LRT_EXPORT = Path("backend/scripts/LRT.json")
 
 # Lines to process: ref -> (fixed_id, full_name, short_name, color)
 LINE_META = {
-    "NSL": (1, "MRT North-South Line",          "NSL", "#dc241f"),
-    "EWL": (2, "MRT East-West Line",             "EWL", "#009530"),
-    "CCL": (3, "MRT Circle Line",                "CCL", "#FF9A00"),
-    "DTL": (4, "MRT Downtown Line",              "DTL", "#0354a6"),
-    "NEL": (5, "MRT North East Line",            "NEL", "#9016b2"),
-    "TEL": (6, "MRT Thomson-East Coast Line",    "TEL", "#9D5B25"),
+    "NSL":   (1, "MRT North-South Line",          "NSL",   "#dc241f"),
+    "EWL":   (2, "MRT East-West Line",             "EWL",   "#009530"),
+    "CCL":   (3, "MRT Circle Line",                "CCL",   "#FF9A00"),
+    "DTL":   (4, "MRT Downtown Line",              "DTL",   "#0354a6"),
+    "NEL":   (5, "MRT North East Line",            "NEL",   "#9016b2"),
+    "TEL":   (6, "MRT Thomson-East Coast Line",    "TEL",   "#9D5B25"),
+    "SKLRT": (7, "LRT Sengkang Line",              "SKLRT", "#4A6741"),
+    "PGLRT": (8, "LRT Punggol Line",               "PGLRT", "#007A85"),
+    "BPLRT": (9, "LRT Bukit Panjang Line",         "BPLRT", "#C0306A"),
 }
 
 STOP_ROLES = {"stop", "stop_entry_only", "stop_exit_only"}
 
 
 def normalize_name(name: str) -> str:
-    """Strip parenthetical line-code suffixes like '(EW2)' for dedup / lookup."""
-    return name.split("(")[0].strip()
+    """Strip parenthetical suffixes and loop-direction suffixes.
+
+    Examples:
+      "Tampines (EW2)"              → "Tampines"
+      "Sengkang - West Loop ↻"     → "Sengkang"
+      "Choa Chu Kang - Line A"     → "Choa Chu Kang"
+    """
+    name = name.split("(")[0].strip()
+    name = name.split(" - ")[0].strip()
+    return name
 
 
 # ── Haversine distance (meters) ───────────────────────────────────────────────
@@ -120,57 +143,64 @@ def get_stop_names(relation, node_map):
     return result
 
 
-# ── Find closest node in chain to a given lat/lon ────────────────────────────
-def closest_chain_node(chain, lat, lon, node_map):
-    """Return the index in chain whose node is closest to (lat, lon)."""
-    best_i, best_d = 0, float("inf")
-    for i, nid in enumerate(chain):
-        n = node_map.get(nid)
-        if n is None:
-            continue
-        d = (n["lat"] - lat) ** 2 + (n["lon"] - lon) ** 2
-        if d < best_d:
-            best_d = d
-            best_i = i
+# ── Windowed chain-node search (forward and backward) ────────────────────────
+def _chain_nearest(chain, start, stop, step, lat, lon, node_map):
+    """Scan chain[start:stop:step] and return the index closest to (lat, lon).
+    step is +1 (forward) or -1 (backward).  Returns start if no node found."""
+    best_i, best_d = start, float("inf")
+    idx = start
+    while 0 <= idx < len(chain) and idx != stop:
+        n = node_map.get(chain[idx])
+        if n is not None:
+            d = (n["lat"] - lat) ** 2 + (n["lon"] - lon) ** 2
+            if d < best_d:
+                best_d = d
+                best_i = idx
+        idx += step
     return best_i
 
 
-# ── Extract geometry between two stops using chain ───────────────────────────
-def extract_segment(chain, s1_lat, s1_lon, s2_lat, s2_lon, node_map):
-    """
-    Find approximate positions of stop1 and stop2 in the node chain,
-    then return [[lat,lon],...] for the sub-chain between them.
-    Returns None if chain is empty.
-    """
-    if not chain:
-        return None
+def closest_chain_node_fwd(chain, from_idx, lat, lon, node_map, window=200):
+    """Nearest chain node in chain[from_idx : from_idx+window] (forward)."""
+    return _chain_nearest(chain, from_idx,
+                          min(from_idx + window + 1, len(chain)), +1,
+                          lat, lon, node_map)
 
-    i1 = closest_chain_node(chain, s1_lat, s1_lon, node_map)
-    i2 = closest_chain_node(chain, s2_lat, s2_lon, node_map)
 
-    if i1 <= i2:
-        sub = chain[i1: i2 + 1]
-    else:
-        sub = list(reversed(chain[i2: i1 + 1]))
+def closest_chain_node_bwd(chain, from_idx, lat, lon, node_map, window=200):
+    """Nearest chain node in chain[from_idx : from_idx-window] (backward)."""
+    return _chain_nearest(chain, from_idx,
+                          max(from_idx - window - 1, -1), -1,
+                          lat, lon, node_map)
 
-    coords = []
-    for nid in sub:
-        n = node_map.get(nid)
-        if n:
-            coords.append([n["lat"], n["lon"]])
 
-    return coords if len(coords) >= 2 else None
+def closest_chain_node(chain, lat, lon, node_map):
+    """Global nearest chain node (used once per direction for orientation)."""
+    return _chain_nearest(chain, 0, len(chain), +1, lat, lon, node_map)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    with open(EXPORT, encoding="utf-8") as f:
-        data = json.load(f)
-    elements = data["elements"]
+    with open(MRT_EXPORT, encoding="utf-8") as f:
+        mrt_elements = json.load(f)["elements"]
+    with open(LRT_EXPORT, encoding="utf-8") as f:
+        lrt_elements = json.load(f)["elements"]
 
-    node_map  = {e["id"]: e for e in elements if e["type"] == "node"}
-    way_map   = {e["id"]: e for e in elements if e["type"] == "way"}
-    relations = [e for e in elements if e["type"] == "relation"]
+    # Build maps preferring MRT data (has name tags); add LRT-only entries.
+    node_map: dict = {e["id"]: e for e in mrt_elements if e["type"] == "node"}
+    for e in lrt_elements:
+        if e["type"] == "node" and e["id"] not in node_map:
+            node_map[e["id"]] = e
+
+    way_map: dict = {e["id"]: e for e in mrt_elements if e["type"] == "way"}
+    for e in lrt_elements:
+        if e["type"] == "way" and e["id"] not in way_map:
+            way_map[e["id"]] = e
+
+    relations = (
+        [e for e in mrt_elements if e["type"] == "relation"] +
+        [e for e in lrt_elements if e["type"] == "relation"]
+    )
 
     print(f"Loaded: {len(node_map)} nodes, {len(way_map)} ways, "
           f"{len(relations)} relations")
@@ -256,17 +286,69 @@ def main():
             dir_entries = [(dir_idx, seq, s["id"]) for seq, s in enumerate(can_stops)]
             line_stops_data[lid].append(dir_entries)
 
-            # Build connections
+            # Build connections – sequential windowed search along the chain.
+            #
+            # Key insight for round-trip chains (BPLRT, SKLRT, PGLRT):
+            #   The OSM relation represents a full round-trip, so stations near
+            #   the junction (e.g. BP, CCK) appear TWICE in the chain – once on
+            #   the outbound leg and once on the return leg.  A global
+            #   nearest-node search may match the wrong copy, causing the
+            #   extracted sub-chain to traverse the entire loop.
+            #
+            # Fix: determine which end of the chain matches the first stop
+            # (detecting forward vs. backward chain direction), then advance a
+            # windowed cursor one stop at a time so each stop is found near its
+            # predecessor – never jumping across the loop.
+
+            # --- detect chain direction ---
+            chain_step = 1   # +1 = forward, -1 = backward
+            chain_pos  = 0
+            if chain and len(can_stops) >= 2:
+                idx0 = closest_chain_node(chain,
+                                          can_stops[0]["lat"], can_stops[0]["lon"],
+                                          node_map)
+                idxN = closest_chain_node(chain,
+                                          can_stops[-1]["lat"], can_stops[-1]["lon"],
+                                          node_map)
+                if idx0 > idxN:          # chain runs opposite to stop order
+                    chain_step = -1
+                    chain_pos  = len(chain) - 1
+
             fallback = 0
             for i in range(len(can_stops) - 1):
                 s1, s2 = can_stops[i], can_stops[i + 1]
                 key = (min(s1["id"], s2["id"]), max(s1["id"], s2["id"]), lid)
+
+                seg = None
+                if chain:
+                    if chain_step == 1:
+                        i1 = closest_chain_node_fwd(
+                            chain, chain_pos, s1["lat"], s1["lon"], node_map)
+                        i2 = closest_chain_node_fwd(
+                            chain, i1, s2["lat"], s2["lon"], node_map)
+                        if key not in connections:
+                            sub = chain[i1: i2 + 1]
+                    else:
+                        i1 = closest_chain_node_bwd(
+                            chain, chain_pos, s1["lat"], s1["lon"], node_map)
+                        i2 = closest_chain_node_bwd(
+                            chain, i1, s2["lat"], s2["lon"], node_map)
+                        if key not in connections:
+                            sub = list(reversed(chain[i2: i1 + 1]))
+                    chain_pos = i2          # advance cursor for next pair
+
+                    if key not in connections:
+                        coords = []
+                        for nid in sub:
+                            n = node_map.get(nid)
+                            if n:
+                                coords.append([n["lat"], n["lon"]])
+                        if len(coords) >= 2:
+                            seg = coords
+
                 if key in connections:
                     continue
 
-                seg = extract_segment(
-                    chain, s1["lat"], s1["lon"], s2["lat"], s2["lon"], node_map
-                ) if chain else None
                 if seg is None:
                     seg = [[s1["lat"], s1["lon"]], [s2["lat"], s2["lon"]]]
                     fallback += 1
