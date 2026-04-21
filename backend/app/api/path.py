@@ -166,22 +166,38 @@ def find_route(start_lat: float, start_lon: float,
     with get_db_connection() as conn:
         cursor = conn.cursor()
 
-        # Thông tin tên cho mỗi ga trong path
-        path_nodes = []
-        for sid in path_ids:
-            cursor.execute("SELECT name, lat, lon FROM stations WHERE id=?", (sid,))
-            row = cursor.fetchone()
-            lat, lon = service.nodes[sid]
-            path_nodes.append({
+        # Thông tin tên cho mỗi ga trong path (batch query)
+        ph = ','.join('?' * len(path_ids))
+        cursor.execute(f"SELECT id, name FROM stations WHERE id IN ({ph})", path_ids)
+        station_name_map = {r['id']: r['name'] for r in cursor.fetchall()}
+        path_nodes = [
+            {
                 "id":   sid,
-                "name": row["name"] if row else "",
-                "lat":  lat,
-                "lon":  lon
-            })
+                "name": station_name_map.get(sid, ""),
+                "lat":  service.nodes[sid][0],
+                "lon":  service.nodes[sid][1],
+            }
+            for sid in path_ids
+        ]
 
         # Thông tin start/end station
         start_row = path_nodes[0]
         end_row   = path_nodes[-1]
+
+        # Pre-load geometry cho tất cả segment pairs (1 query thay vì N)
+        seg_node_ids = list({sid for seg in result["segments"] for sid in (seg["from_id"], seg["to_id"])})
+        geo_cache = {}
+        if seg_node_ids:
+            gph = ','.join('?' * len(seg_node_ids))
+            cursor.execute(
+                f"SELECT from_id, to_id, geometry FROM rail_geometry "
+                f"WHERE from_id IN ({gph}) AND to_id IN ({gph})",
+                seg_node_ids * 2,
+            )
+            for r in cursor.fetchall():
+                key = (min(r["from_id"], r["to_id"]), max(r["from_id"], r["to_id"]))
+                if key not in geo_cache:
+                    geo_cache[key] = json.loads(r["geometry"])
 
         # Segments với geometry + line info
         segments_out = []
@@ -189,15 +205,10 @@ def find_route(start_lat: float, start_lon: float,
             u, v, lid = seg["from_id"], seg["to_id"], seg["line_id"]
             line_info = service.lines.get(lid, {"name": "Unknown", "color": "#888888", "short_name": "?"}) if lid else {"name": "Unknown", "color": "#888888", "short_name": "?"}
 
-            # Lấy geometry
-            cursor.execute("""
-                SELECT geometry FROM rail_geometry
-                WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?)
-                LIMIT 1
-            """, (u, v, v, u))
-            geo_row = cursor.fetchone()
-            if geo_row:
-                coords = json.loads(geo_row["geometry"])
+            # Lấy geometry từ cache
+            raw = geo_cache.get((min(u, v), max(u, v)))
+            if raw:
+                coords = list(raw)
             else:
                 # Fallback: đường thẳng
                 ulat, ulon = service.nodes[u]

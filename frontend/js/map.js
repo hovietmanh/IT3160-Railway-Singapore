@@ -39,8 +39,8 @@ function initMap() {
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-        keepBuffer: 6,
+        maxZoom: 18,
+        keepBuffer: 10,
         updateWhenIdle: false,
         updateWhenZooming: false,
     }).addTo(map);

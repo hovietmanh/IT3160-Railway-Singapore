@@ -212,6 +212,8 @@ async function findRoute() {
 
         if (res.ok) {
             const data = await res.json();
+            setStationMarker(startStation, 'start');
+            setStationMarker(endStation,   'end');
             drawRoute(data.segments);
             renderResult(data, null);
             renderBlockedBox(null);

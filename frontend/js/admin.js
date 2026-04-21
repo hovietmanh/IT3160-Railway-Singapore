@@ -1,7 +1,3 @@
-/* ===== ADMIN MODULE =====
- * Quản lý 2 loại kịch bản: Đóng tuyến & Đóng ga.
- * showModal, buildBlockedBodyHtml, tryAlternativeRoute → utils.js
- */
 
 let adminMap;
 let allLines       = [];
@@ -16,6 +12,10 @@ let _currentPopup     = null;
 let _currentPopupType = null;  // 'station' | 'line'
 let _currentPopupId   = null;
 
+// ── Scenario ID cache (tránh re-fetch khi mở lại) ────────────────────────────
+let _scenarioIdByLineId    = {};  // line_id → scenario_id
+let _scenarioIdByStationId = {};  // station_id → scenario_id
+
 // ── Pathfinding state ─────────────────────────────────────────────────────────
 let routeClickState    = 'waiting_start';
 let routeStartStation  = null;
@@ -28,20 +28,33 @@ let routeEndMarkers    = [];  // click + snap markers của điểm đến
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-login').onclick = handleLogin;
-    document.getElementById('password').addEventListener('keydown', e => {
-        if (e.key === 'Enter') handleLogin();
-    });
+    ['username', 'password'].forEach(id =>
+        document.getElementById(id).addEventListener('keydown', e => {
+            if (e.key === 'Enter') handleLogin();
+        })
+    );
 });
 
 async function handleLogin() {
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value.trim();
+    const btn = document.getElementById('btn-login');
+    const err = document.getElementById('login-error');
+
+    btn.disabled = true;
+    btn.style.opacity = '.7';
+    btn.innerHTML = '<span style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite"></span> Đang xác thực...';
+    err.textContent = '';
+
     if (await Auth.login(username, password)) {
         document.getElementById('login-page').style.display = 'none';
         document.getElementById('dashboard').style.display  = 'flex';
         await initAdminDashboard();
     } else {
-        document.getElementById('login-error').textContent = 'Sai username hoặc password!';
+        err.textContent = 'Sai username hoặc password!';
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px;flex-shrink:0"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H3zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg> Đăng nhập hệ thống';
     }
 }
 
@@ -60,8 +73,8 @@ async function initAdminDashboard() {
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-        keepBuffer: 6,
+        maxZoom: 18,
+        keepBuffer: 10,
         updateWhenIdle: false,
         updateWhenZooming: false,
     }).addTo(adminMap);
@@ -90,6 +103,13 @@ async function initAdminDashboard() {
 
     document.getElementById('btn-logout').onclick = () => {
         Auth.logout();
+        document.getElementById('username').value = '';
+        document.getElementById('password').value = '';
+        document.getElementById('login-error').textContent = '';
+        const btn = document.getElementById('btn-login');
+        btn.disabled = false;
+        btn.style.opacity = '';
+        btn.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor" style="width:16px;height:16px;flex-shrink:0"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H3zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clip-rule="evenodd"/></svg> Đăng nhập hệ thống';
         document.getElementById('dashboard').style.display  = 'none';
         document.getElementById('login-page').style.display = 'flex';
     };
@@ -100,8 +120,7 @@ async function initAdminDashboard() {
         await fetch(`${CONFIG.API_BASE}/api/scenarios/lines`, { method: 'DELETE', headers: Auth.headers() });
         closedLines.clear();
         refreshNetworkStyle();
-        await loadScenarios();
-        await autoRefreshAdminRoute();
+        await Promise.all([loadScenarios(), autoRefreshAdminRoute()]);
     };
 
     document.getElementById('btn-clear-stations').onclick = async () => {
@@ -110,8 +129,7 @@ async function initAdminDashboard() {
         await fetch(`${CONFIG.API_BASE}/api/scenarios/stations`, { method: 'DELETE', headers: Auth.headers() });
         closedStations.clear();
         refreshStationStyle();
-        await loadScenarios();
-        await autoRefreshAdminRoute();
+        await Promise.all([loadScenarios(), autoRefreshAdminRoute()]);
     };
 }
 
@@ -167,9 +185,8 @@ function renderLinesList() {
 
 async function toggleLine(lineId, lineName) {
     if (closedLines.has(lineId)) {
-        const scenarios = await fetch(`${CONFIG.API_BASE}/api/scenarios`, { headers: Auth.headers() }).then(r => r.json());
-        const sc = scenarios.find(s => s.type === 'close_line' && s.line_id === lineId);
-        if (sc) await fetch(`${CONFIG.API_BASE}/api/scenarios/${sc.id}`, { method: 'DELETE', headers: Auth.headers() });
+        const scId = _scenarioIdByLineId[lineId];
+        if (scId != null) await fetch(`${CONFIG.API_BASE}/api/scenarios/${scId}`, { method: 'DELETE', headers: Auth.headers() });
         closedLines.delete(lineId);
     } else {
         await fetch(`${CONFIG.API_BASE}/api/scenarios/close_line`, {
@@ -179,8 +196,7 @@ async function toggleLine(lineId, lineName) {
         closedLines.add(lineId);
     }
     refreshNetworkStyle();
-    await loadScenarios();
-    await autoRefreshAdminRoute();
+    await Promise.all([loadScenarios(), autoRefreshAdminRoute()]);
 }
 
 function _refreshAdminEdgeVisibility() {
@@ -254,9 +270,8 @@ function filterStations(query) {
 
 async function toggleStation(stationId, stationName) {
     if (closedStations.has(stationId)) {
-        const scenarios = await fetch(`${CONFIG.API_BASE}/api/scenarios`, { headers: Auth.headers() }).then(r => r.json());
-        const sc = scenarios.find(s => s.type === 'close_station' && s.station_id === stationId);
-        if (sc) await fetch(`${CONFIG.API_BASE}/api/scenarios/${sc.id}`, { method: 'DELETE', headers: Auth.headers() });
+        const scId = _scenarioIdByStationId[stationId];
+        if (scId != null) await fetch(`${CONFIG.API_BASE}/api/scenarios/${scId}`, { method: 'DELETE', headers: Auth.headers() });
         closedStations.delete(stationId);
     } else {
         await fetch(`${CONFIG.API_BASE}/api/scenarios/close_station`, {
@@ -266,8 +281,7 @@ async function toggleStation(stationId, stationName) {
         closedStations.add(stationId);
     }
     refreshStationStyle();
-    await loadScenarios();
-    await autoRefreshAdminRoute();
+    await Promise.all([loadScenarios(), autoRefreshAdminRoute()]);
 }
 
 function refreshStationStyle() {
@@ -301,9 +315,17 @@ async function loadScenarios() {
 
     closedLines.clear();
     closedStations.clear();
+    _scenarioIdByLineId    = {};
+    _scenarioIdByStationId = {};
     scenarios.forEach(s => {
-        if (s.type === 'close_line')    closedLines.add(s.line_id);
-        if (s.type === 'close_station') closedStations.add(s.station_id);
+        if (s.type === 'close_line') {
+            closedLines.add(s.line_id);
+            _scenarioIdByLineId[s.line_id] = s.id;
+        }
+        if (s.type === 'close_station') {
+            closedStations.add(s.station_id);
+            _scenarioIdByStationId[s.station_id] = s.id;
+        }
     });
     refreshNetworkStyle();
     refreshStationStyle();
@@ -345,7 +367,7 @@ async function loadScenarios() {
 
 async function removeScenario(id) {
     await fetch(`${CONFIG.API_BASE}/api/scenarios/${id}`, { method: 'DELETE', headers: Auth.headers() });
-    await loadScenarios();
+    await Promise.all([loadScenarios(), autoRefreshAdminRoute()]);
 }
 
 // ── Admin Pathfinding ─────────────────────────────────────────────────────────
@@ -361,7 +383,7 @@ function setupRouteClick() {
 
         const clickMark = L.circleMarker([lat, lon], {
             radius: 5, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.5,
-        }).addTo(adminMap);
+        }).addTo(adminMap); 
 
         const station = await fetchAdminNearest(lat, lon);
 
@@ -522,6 +544,8 @@ async function findAdminRoute() {
 
         if (res.ok) {
             const data = await res.json();
+            _resetSnapMarker(routeStartMarkers, routeStartStation, true);
+            _resetSnapMarker(routeEndMarkers,   routeEndStation,   false);
             drawAdminRoute(data.segments);
             renderRouteResult(data, null);
             renderAdminBlockedBox(null);
@@ -551,11 +575,12 @@ async function findAdminRoute() {
         if (alt) {
             drawAdminRoute(alt.data.segments);
             renderRouteResult(alt.data, alt.note);
-            // Chỉ di chuyển cờ hiệu của ga bị thay thế
+            // Xóa snap marker cũ, thay bằng marker ga thay thế
             const altIsStart = alt.altType === 'start';
+            const markers = altIsStart ? routeStartMarkers : routeEndMarkers;
+            if (markers.length > 1) adminMap.removeLayer(markers.splice(1, 1)[0]);
             const altMark = _makeSnapMarker(alt.altStation, altIsStart);
-            if (altIsStart) routeStartMarkers.push(altMark);
-            else            routeEndMarkers.push(altMark);
+            markers.push(altMark);
         } else {
             await showModal('Không tìm được',
                 'Không tìm được đường đi, kể cả khi thử các ga lân cận.',
@@ -693,4 +718,10 @@ async function toggleStationFromMap(stationId, stationName) {
 async function toggleLineFromMap(lineId, lineName) {
     await toggleLine(lineId, lineName);
     // refreshNetworkStyle (called inside toggleLine) tự cập nhật popup
+}
+
+function _resetSnapMarker(markers, station, isStart) {
+    if (!station) return;
+    if (markers.length > 1) adminMap.removeLayer(markers.splice(1, 1)[0]);
+    markers.push(_makeSnapMarker(station, isStart));
 }
